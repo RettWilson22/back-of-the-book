@@ -21,6 +21,7 @@ def app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         index_dir = tmp_path / "index"
         CorpusIndex.build(chunk_pages(TOY_PAGES), FakeEmbedder()).save(index_dir)
         monkeypatch.setenv("COURSEPILOT_INDEX", str(index_dir))
+        monkeypatch.setenv("COURSEPILOT_SAMPLE", "0")
 
         class Embedder(FakeEmbedder):
             def __init__(self, model_name: str = "") -> None:

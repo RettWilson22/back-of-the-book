@@ -19,9 +19,13 @@ from coursepilot.index import CorpusIndex, Embedder, IndexBuildError, SentenceTr
 from coursepilot.llm import LLMError, make_provider
 from coursepilot.quiz import generate_quiz
 from coursepilot.retrieval import CrossEncoderReranker, Hit, Retriever
+from coursepilot.sample import build_sample_index
 
 ROOT = Path(__file__).resolve().parents[1]
 INDEX_DIR = Path(os.environ.get("COURSEPILOT_INDEX", ROOT / ".coursepilot" / "index"))
+# With no index yet, download and index the sample textbook on first start (set to 0 to skip).
+USE_SAMPLE = os.environ.get("COURSEPILOT_SAMPLE", "1") != "0"
+DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 st.set_page_config(page_title="CoursePilot", page_icon="🎓", layout="wide")
 
@@ -29,6 +33,16 @@ st.set_page_config(page_title="CoursePilot", page_icon="🎓", layout="wide")
 @st.cache_resource(show_spinner="Loading models...")
 def load_models(model_name: str) -> tuple[SentenceTransformerEmbedder, CrossEncoderReranker]:
     return SentenceTransformerEmbedder(model_name), CrossEncoderReranker()
+
+
+@st.cache_resource(show_spinner=False)
+def build_sample(index_dir: Path) -> str | None:
+    """Build the sample index once per server process; concurrent sessions wait for it."""
+    try:
+        build_sample_index(ROOT / "data" / "corpus", index_dir, SentenceTransformerEmbedder())
+    except Exception as e:  # e.g. no network; the app still works with uploads
+        return str(e)
+    return None
 
 
 @st.cache_resource(show_spinner="Loading course index...")
@@ -69,10 +83,14 @@ def render_sources(numbered_hits: list[tuple[int, Hit]]) -> None:
 # --- Sidebar: materials and settings -----------------------------------------------------
 
 st.sidebar.title("🎓 CoursePilot")
+if USE_SAMPLE and not (INDEX_DIR / "meta.json").exists():
+    with st.spinner(
+        "First start: downloading the sample textbook and indexing it. This takes about a minute."
+    ):
+        if error := build_sample(INDEX_DIR):
+            st.warning(f"Couldn't set up the sample textbook ({error}). You can upload files.")
 base_index = load_base_index()
-embedder, reranker = load_models(
-    base_index.embedding_model if base_index else "sentence-transformers/all-MiniLM-L6-v2"
-)
+embedder, reranker = load_models(base_index.embedding_model if base_index else DEFAULT_MODEL)
 
 uploads = st.sidebar.file_uploader(
     "Add your own course materials",
@@ -128,7 +146,7 @@ with ask_tab:
             st.markdown(turn["text"])
             render_sources(turn["sources"])
 
-    if question := st.chat_input("Ask about your course materials..."):
+    if question := st.chat_input("Ask about your course materials...", max_chars=500):
         with st.chat_message("user"):
             st.write(question)
         with st.chat_message("assistant"):
@@ -153,7 +171,7 @@ with ask_tab:
 with quiz_tab:
     with st.form("quiz_form"):
         topic = st.text_input(
-            "Quiz me on", placeholder="e.g. hypothesis testing, k-means clustering"
+            "Quiz me on", placeholder="e.g. hypothesis testing, k-means clustering", max_chars=200
         )
         count = st.slider("Number of questions", 3, 10, 5)
         make_quiz = st.form_submit_button("Generate quiz")

@@ -77,6 +77,12 @@ Off-topic questions that still get through: "SOLID principles", "public-key cryp
 - **Quizzes use structured output.** On Claude, the response must match a JSON schema (`output_format`). On Groq, JSON mode plus Pydantic validation, with one automatic repair attempt. Invalid questions are dropped, not shown.
 - **Claude requests opt into server-side refusal fallback** (`fallbacks: "default"`) and check `stop_reason` before reading output.
 
+## Try it
+
+**Live demo: https://coursepilot-rettwilson.streamlit.app**
+
+It's preloaded with the sample textbook. Ask a question, or open **Practice quiz** and pick a topic. You can also upload your own slides or notes in the sidebar; they stay in your session only. If the app has been idle it may take a minute to wake up.
+
 ## Getting started
 
 ```bash
@@ -114,10 +120,16 @@ Use your own materials with `coursepilot ingest path/to/slides/`, or upload file
 | `COURSEPILOT_CLAUDE_MODEL` / `COURSEPILOT_CLAUDE_EFFORT` | `claude-opus-5-5` / `medium` |
 | `COURSEPILOT_INDEX` (web app) | `.coursepilot/index` |
 
+### Deploy your own (Streamlit Community Cloud, free)
+
+1. Fork this repo, then at [share.streamlit.io](https://share.streamlit.io) choose **Create app → Deploy a public app from GitHub**.
+2. Repository: your fork, branch `main`, main file `app/streamlit_app.py`. Under **Advanced settings**, pick Python 3.12 and add `GROQ_API_KEY = "..."` as a secret.
+3. Deploy. On first start the app downloads the sample textbook and builds the index (about a minute). Peak memory is about 0.6 GB. Set the secret `COURSEPILOT_SAMPLE = "0"` to skip the sample and use uploads only.
+
 ## Testing
 
 ```bash
-pytest                 # 78 tests, about 15 s, no downloads or API keys needed (fake models and LLM)
+pytest                 # 82 tests, about 15 s, no downloads or API keys needed (fake models and LLM)
 pytest -m slow         # real embedding/reranking models; includes a guard that fails
                        # if textbook Recall@10 drops below 95% or MRR below 0.80
 ruff check . && mypy src app/streamlit_app.py
