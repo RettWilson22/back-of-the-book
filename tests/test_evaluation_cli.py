@@ -124,5 +124,5 @@ def test_cli_quiz_without_llm_reports_error(tmp_path: Path, fake_models, capsys)
     index = tmp_path / "index"
     cli.main(["--index", str(index), "ingest", str(docs)])
 
-    assert cli.main(["--index", str(index), "quiz", "decision trees"]) == 1
-    assert "needs an LLM" in capsys.readouterr().err
+    assert cli.main(["--index", str(index), "quiz", "decision trees"]) == 4
+    assert "Error [NO_LLM_CONFIGURED]: Quiz generation needs an LLM" in capsys.readouterr().err

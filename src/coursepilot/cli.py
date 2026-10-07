@@ -7,9 +7,11 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from coursepilot.errors import CoursePilotError
 from coursepilot.index import USER_INDEX, default_index_dir
 
 if TYPE_CHECKING:
+    from coursepilot.quiz import Quiz
     from coursepilot.retrieval import Retriever
 
 
@@ -50,18 +52,14 @@ def cmd_ingest(args: argparse.Namespace) -> int:
 
 def cmd_ask(args: argparse.Namespace) -> int:
     from coursepilot.answer import AnswerEngine
-    from coursepilot.llm import LLMError, make_provider
+    from coursepilot.llm import make_provider
 
     engine = AnswerEngine(
         _retriever(args.index or default_index_dir()), make_provider(args.llm), k=args.k
     )
     answer, tokens = engine.stream(args.question)
-    try:
-        for token in tokens:
-            print(token, end="", flush=True)
-    except LLMError as e:
-        print(f"\nError: {e}", file=sys.stderr)
-        return 1
+    for token in tokens:
+        print(token, end="", flush=True)
     print("\n")
     for n, hit in answer.cited_hits:
         print(f"  [S{n}] {hit.chunk.citation}")
@@ -70,28 +68,45 @@ def cmd_ask(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_quiz(args: argparse.Namespace) -> int:
-    from coursepilot.llm import LLMError, make_provider
-    from coursepilot.quiz import TopicNotCovered, generate_quiz
-
-    try:
-        quiz = generate_quiz(
-            _retriever(args.index or default_index_dir()),
-            make_provider(args.llm),
-            args.topic,
-            args.n,
-        )
-    except (LLMError, TopicNotCovered) as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
+def print_quiz(quiz: Quiz) -> None:
+    print(f"{quiz.topic} ({quiz.difficulty.value})")
+    if not quiz.grounded:
+        checked = ", double-checked" if quiz.checked else ""
+        print(f"Written by AI from general knowledge{checked}.")
     for i, q in enumerate(quiz.questions, start=1):
         print(f"\n{i}. {q.question}")
         for letter, choice in zip("ABCD", q.choices, strict=True):
             print(f"   {letter}) {choice}")
-        sources = ", ".join(h.chunk.citation for h in quiz.sources_for(q))
-        print(f"   Answer: {'ABCD'[q.answer_index]}. {q.explanation} ({sources})")
-    if quiz.dropped:
-        print(f"\n({quiz.dropped} generated question(s) failed validation and were dropped)")
+        source = ""
+        if quiz.grounded:
+            source = " (" + ", ".join(h.chunk.citation for h in quiz.sources_for(q)) + ")"
+        print(f"   Answer: {'ABCD'[q.answer_index]}. {q.explanation}{source}")
+    if quiz.dropped or quiz.failed_check:
+        print(
+            f"\n(left out {quiz.dropped} malformed or repeated question(s) and "
+            f"{quiz.failed_check} that failed the double-check)"
+        )
+
+
+def cmd_quiz(args: argparse.Namespace) -> int:
+    from coursepilot.llm import make_provider
+    from coursepilot.quiz import generate_quiz
+
+    retriever = _retriever(args.index or default_index_dir())
+    print_quiz(
+        generate_quiz(retriever, make_provider(args.llm), args.topic, args.n, args.difficulty)
+    )
+    return 0
+
+
+def cmd_anyquiz(args: argparse.Namespace) -> int:
+    from coursepilot.llm import make_provider
+    from coursepilot.quiz import generate_anyquiz
+
+    quiz = generate_anyquiz(
+        make_provider(args.llm), args.topic, args.n, args.difficulty, verify=not args.no_check
+    )
+    print_quiz(quiz)
     return 0
 
 
@@ -145,11 +160,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-k", type=int, default=6, help="passages to give the model")
     p.set_defaults(func=cmd_ask)
 
-    p = sub.add_parser("quiz", help="generate a practice quiz on a topic")
-    p.add_argument("topic")
-    p.add_argument("-n", type=int, default=5, help="number of questions")
-    p.add_argument("--llm", choices=["claude", "groq"])
-    p.set_defaults(func=cmd_quiz)
+    for name, func, help_text in [
+        ("quiz", cmd_quiz, "practice quiz written only from your course materials"),
+        ("anyquiz", cmd_anyquiz, "quiz on any topic, written from the AI's general knowledge"),
+    ]:
+        p = sub.add_parser(name, help=help_text)
+        p.add_argument("topic")
+        p.add_argument("-n", type=int, default=5, help="number of questions (1-10)")
+        p.add_argument("-d", "--difficulty", default="medium", help="easy, medium, or hard")
+        p.add_argument("--llm", choices=["claude", "groq"])
+        if name == "anyquiz":
+            p.add_argument(
+                "--no-check", action="store_true", help="skip the answer double-check pass"
+            )
+        p.set_defaults(func=func)
 
     p = sub.add_parser("eval", help="measure retrieval accuracy on a labeled question set")
     p.add_argument("--questions", type=Path, default=Path("eval/questions.jsonl"))
@@ -159,8 +183,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run a command. Coded errors print as `Error [CODE]: message` and exit with the
+    category's exit code (see errors.py): 2 invalid input, 3 not in materials,
+    4 configuration, 5 LLM service, 6 generation."""
     args = build_parser().parse_args(argv)
-    return int(args.func(args))
+    try:
+        return int(args.func(args))
+    except CoursePilotError as e:
+        retry = " (you can try again)" if e.retryable else ""
+        print(f"\nError [{e.code}]: {e.message}{retry}", file=sys.stderr)
+        return e.exit_code
 
 
 if __name__ == "__main__":

@@ -15,6 +15,8 @@ from typing import Any, Protocol, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
+from coursepilot.errors import CoursePilotError, ErrorCode
+
 T = TypeVar("T", bound=BaseModel)
 
 CLAUDE_DEFAULT_MODEL = "claude-opus-5-5"
@@ -24,8 +26,8 @@ GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b"
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 
-class LLMError(RuntimeError):
-    """A provider failure with a message that is safe to show to the user."""
+class LLMError(CoursePilotError):
+    """A provider failure, with an error code and a message that is safe to show to the user."""
 
 
 class LLMProvider(Protocol):
@@ -36,34 +38,59 @@ class LLMProvider(Protocol):
     def generate(self, system: str, user: str, schema: type[T]) -> T: ...
 
 
+def _status_error(provider: str, status: int, message: str) -> LLMError:
+    details = {"provider": provider, "status": status}
+    if status >= 500:
+        return LLMError(
+            ErrorCode.LLM_UNAVAILABLE,
+            f"{provider} is having problems right now (HTTP {status}); try again shortly.",
+            details=details,
+        )
+    return LLMError(
+        ErrorCode.LLM_REQUEST_REJECTED,
+        f"{provider} rejected the request (HTTP {status}): {message}",
+        details=details,
+    )
+
+
 def _claude_error(e: Exception) -> LLMError:
-    """Map Anthropic SDK exceptions (most specific first) to a user-facing message."""
+    """Map Anthropic SDK exceptions (most specific first) to coded errors."""
     import anthropic
 
     if isinstance(e, anthropic.AuthenticationError):
-        return LLMError("Claude rejected the API key; check ANTHROPIC_API_KEY.")
+        return LLMError(
+            ErrorCode.LLM_AUTH_FAILED, "Claude rejected the API key; check ANTHROPIC_API_KEY."
+        )
     if isinstance(e, anthropic.RateLimitError):
-        return LLMError("Claude rate limit reached; wait a moment and try again.")
+        return LLMError(
+            ErrorCode.LLM_RATE_LIMITED, "Claude rate limit reached; wait a moment and try again."
+        )
     if isinstance(e, anthropic.APIStatusError):
-        return LLMError(f"Claude API error {e.status_code}: {e.message}")
+        return _status_error("Claude", e.status_code, e.message)
     if isinstance(e, anthropic.APIConnectionError):
-        return LLMError("Could not reach the Claude API; check your connection.")
-    return LLMError(f"Claude request failed: {e}")
+        return LLMError(
+            ErrorCode.LLM_UNAVAILABLE, "Could not reach the Claude API; check your connection."
+        )
+    return LLMError(ErrorCode.LLM_UNAVAILABLE, f"Claude request failed: {e}")
 
 
 def _groq_error(e: Exception) -> LLMError:
-    """Map Groq SDK exceptions (most specific first) to a user-facing message."""
+    """Map Groq SDK exceptions (most specific first) to coded errors."""
     import groq
 
     if isinstance(e, groq.AuthenticationError):
-        return LLMError("Groq rejected the API key; check GROQ_API_KEY.")
+        return LLMError(ErrorCode.LLM_AUTH_FAILED, "Groq rejected the API key; check GROQ_API_KEY.")
     if isinstance(e, groq.RateLimitError):
-        return LLMError("Groq rate limit reached; wait a moment and try again.")
+        return LLMError(
+            ErrorCode.LLM_RATE_LIMITED, "Groq rate limit reached; wait a moment and try again."
+        )
     if isinstance(e, groq.APIStatusError):
-        return LLMError(f"Groq API error {e.status_code}: {e.message}")
+        return _status_error("Groq", e.status_code, e.message)
     if isinstance(e, groq.APIConnectionError):
-        return LLMError("Could not reach the Groq API; check your connection.")
-    return LLMError(f"Groq request failed: {e}")
+        return LLMError(
+            ErrorCode.LLM_UNAVAILABLE, "Could not reach the Groq API; check your connection."
+        )
+    return LLMError(ErrorCode.LLM_UNAVAILABLE, f"Groq request failed: {e}")
 
 
 class ClaudeProvider:
@@ -98,7 +125,7 @@ class ClaudeProvider:
         except anthropic.APIError as e:
             raise _claude_error(e) from e
         if final.stop_reason == "refusal":
-            raise LLMError("Claude declined to answer this request.")
+            raise LLMError(ErrorCode.LLM_REFUSED, "Claude declined to answer this request.")
 
     def generate(self, system: str, user: str, schema: type[T]) -> T:
         import anthropic
@@ -117,9 +144,13 @@ class ClaudeProvider:
         except anthropic.APIError as e:
             raise _claude_error(e) from e
         if response.stop_reason == "refusal":
-            raise LLMError("Claude declined to generate this content.")
+            raise LLMError(ErrorCode.LLM_REFUSED, "Claude declined to generate this content.")
         if response.stop_reason == "max_tokens" or response.parsed_output is None:
-            raise LLMError("Claude's response was incomplete; try a smaller request.")
+            raise LLMError(
+                ErrorCode.LLM_BAD_RESPONSE,
+                "Claude's response was incomplete; try fewer questions.",
+                details={"stop_reason": response.stop_reason},
+            )
         parsed: T = response.parsed_output
         return parsed
 
@@ -191,7 +222,11 @@ class GroqProvider:
                         "content": f"That JSON was invalid: {e}. Return corrected JSON.",
                     },
                 ]
-        raise LLMError(f"Groq returned JSON that did not match the schema: {last_error}")
+        raise LLMError(
+            ErrorCode.LLM_BAD_RESPONSE,
+            "Groq's response wasn't in the expected format, even after a retry. Try again.",
+            details={"validation_error": str(last_error)},
+        )
 
 
 class ExtractiveProvider:
@@ -213,7 +248,10 @@ class ExtractiveProvider:
             yield f"- {snippet[:400]}{'…' if len(snippet) > 400 else ''} [S{number}]\n"
 
     def generate(self, system: str, user: str, schema: type[T]) -> T:
-        raise LLMError("Quiz generation needs an LLM. Set GROQ_API_KEY or ANTHROPIC_API_KEY.")
+        raise LLMError(
+            ErrorCode.NO_LLM_CONFIGURED,
+            "Quiz generation needs an LLM. Set GROQ_API_KEY or ANTHROPIC_API_KEY.",
+        )
 
 
 def make_provider(name: str | None = None) -> LLMProvider:

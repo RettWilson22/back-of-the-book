@@ -12,6 +12,7 @@ import httpx2
 import pytest
 from pydantic import BaseModel
 
+from coursepilot.errors import ErrorCode
 from coursepilot.llm import (
     CLAUDE_DEFAULT_MODEL,
     FALLBACK_BETA,
@@ -90,8 +91,9 @@ def test_claude_stream_request_uses_effort_and_server_side_fallback():
 
 def test_claude_stream_refusal_raises():
     provider = ClaudeProvider(client=FakeClaudeClient(stop_reason="refusal"))
-    with pytest.raises(LLMError, match="declined"):
+    with pytest.raises(LLMError, match="declined") as raised:
         list(provider.stream_text("sys", "q"))
+    assert raised.value.code is ErrorCode.LLM_REFUSED
 
 
 def test_claude_generate_uses_structured_output_schema():
@@ -120,26 +122,35 @@ def test_claude_generate_failures(stop_reason: str, parsed: Any, message: str):
 def _anthropic_status(status: int) -> anthropic.APIStatusError:
     request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
     response = httpx2.Response(status, request=request)
-    cls = {401: anthropic.AuthenticationError, 429: anthropic.RateLimitError}.get(
-        status, anthropic.InternalServerError
-    )
+    cls = {
+        400: anthropic.BadRequestError,
+        401: anthropic.AuthenticationError,
+        429: anthropic.RateLimitError,
+    }.get(status, anthropic.InternalServerError)
     return cls(f"status {status}", response=response, body=None)
 
 
 @pytest.mark.parametrize(
-    ("error", "message"),
+    ("error", "code", "retryable"),
     [
-        (_anthropic_status(401), "ANTHROPIC_API_KEY"),
-        (_anthropic_status(429), "rate limit"),
-        (_anthropic_status(500), "error 500"),
-        (anthropic.APIConnectionError(request=httpx2.Request("POST", "https://x")), "connection"),
+        (_anthropic_status(401), ErrorCode.LLM_AUTH_FAILED, False),
+        (_anthropic_status(429), ErrorCode.LLM_RATE_LIMITED, True),
+        (_anthropic_status(500), ErrorCode.LLM_UNAVAILABLE, True),
+        (_anthropic_status(400), ErrorCode.LLM_REQUEST_REJECTED, False),
+        (
+            anthropic.APIConnectionError(request=httpx2.Request("POST", "https://x")),
+            ErrorCode.LLM_UNAVAILABLE,
+            True,
+        ),
     ],
 )
-def test_claude_errors_become_readable_messages(error: Exception, message: str):
-    assert message in str(_claude_error(error))
+def test_claude_errors_get_codes(error: Exception, code: ErrorCode, retryable: bool):
+    mapped = _claude_error(error)
+    assert (mapped.code, mapped.retryable) == (code, retryable)
     provider = ClaudeProvider(client=FakeClaudeClient(raises=error))
-    with pytest.raises(LLMError, match=message):
+    with pytest.raises(LLMError) as raised:
         list(provider.stream_text("sys", "q"))
+    assert raised.value.code is code
 
 
 # --- Groq ---------------------------------------------------------------------------------
@@ -183,8 +194,10 @@ def test_groq_generate_repairs_invalid_json_once():
 
 def test_groq_generate_gives_up_after_repair_attempt():
     client = FakeGroqClient(replies=["not json", "still not json"])
-    with pytest.raises(LLMError, match="did not match"):
+    with pytest.raises(LLMError) as raised:
         GroqProvider(client=client).generate("sys", "q", Answer)
+    assert raised.value.code is ErrorCode.LLM_BAD_RESPONSE
+    assert raised.value.retryable
 
 
 def test_groq_errors_become_readable_messages():
@@ -192,6 +205,7 @@ def test_groq_errors_become_readable_messages():
     error = groq.AuthenticationError(
         "bad key", response=httpx.Response(401, request=request), body=None
     )
+    assert _groq_error(error).code is ErrorCode.LLM_AUTH_FAILED
     assert "GROQ_API_KEY" in str(_groq_error(error))
 
 
@@ -208,8 +222,9 @@ def test_extractive_provider_quotes_sources_with_labels():
 
 
 def test_extractive_provider_cannot_make_quizzes():
-    with pytest.raises(LLMError, match="needs an LLM"):
+    with pytest.raises(LLMError, match="needs an LLM") as raised:
         ExtractiveProvider().generate("sys", "q", Answer)
+    assert raised.value.code is ErrorCode.NO_LLM_CONFIGURED
 
 
 @pytest.mark.parametrize(
