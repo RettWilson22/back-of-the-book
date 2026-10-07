@@ -1,29 +1,32 @@
-"""Multiple-choice quizzes at three difficulty levels, in two modes.
+"""Multiple-choice quizzes at three difficulty levels, always written from a source.
 
-- **Course quiz** (`generate_quiz`): questions written ONLY from retrieved course passages.
-  Each question names the passage it came from. Topics outside the materials are declined.
-- **AnyQuiz** (`generate_anyquiz`): questions on any topic, from the model's own knowledge.
-  Because nothing grounds those answers, an optional self-check has the model answer its own
-  questions without the answer key, and questions where the two disagree are dropped.
+- **Course quiz** (`generate_quiz`): passages retrieved from your course materials.
+- **AnyQuiz** (`generate_anyquiz`): any topic; passages from the best-matching Wikipedia article.
 
-In both modes, malformed questions (not exactly 4 distinct choices, an out-of-range answer,
-blank text, duplicates, or a source the model wasn't given) are dropped rather than shown.
+Both modes work the same way after that: the model writes questions using ONLY the passages
+and names the passage each question comes from. Then a separate source check shows each
+question, its choices (not the answer key), and its cited passages to the model again, and
+asks which choice the passages support. Questions whose answer key doesn't match, or that
+the passages don't clearly support, are dropped. So are malformed and repeated questions.
+
 Every failure raises a `CoursePilotError` with an error code (see `errors.py`).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 from coursepilot.errors import CoursePilotError, ErrorCode
 from coursepilot.llm import LLMProvider
-from coursepilot.retrieval import DEFAULT_MIN_SIMILARITY, Hit, Mode, Retriever
+from coursepilot.retrieval import DEFAULT_MIN_SIMILARITY, Mode, Retriever
+from coursepilot.wiki import Passage, WikipediaSource, article_passages
 
 MAX_TOPIC_CHARS = 200
 MIN_QUESTIONS, MAX_QUESTIONS = 1, 10
+SPARE_QUESTIONS = 2  # extra questions requested so some can be dropped by the source check
 
 
 class Difficulty(StrEnum):
@@ -47,33 +50,25 @@ DIFFICULTY_GUIDE = {
     ),
 }
 
-_QUESTION_RULES = """Each question must:
+WRITE_SYSTEM_PROMPT = """You write multiple-choice quiz questions using ONLY the source \
+excerpts provided. Do not use outside knowledge.
+
+Each question must:
+- be answerable from the excerpts alone, with the correct answer clearly stated in them;
+- test something meaningful about the topic, not trivia about the excerpts themselves \
+(like page numbers, section names, or citation details);
 - have exactly 4 answer choices with exactly one correct answer;
 - give `answer_index` as the 0-based position of the correct choice;
-- include a one or two sentence explanation of why the correct choice is right."""
+- include a one or two sentence explanation of why the correct choice is right;
+- list the label(s) of the excerpt(s) that state the answer in `sources`, e.g. ["S2"].
 
-COURSE_SYSTEM_PROMPT = f"""You write practice quiz questions for a university course, using \
-ONLY the course-material excerpts provided.
+If the excerpts don't support enough good questions, write fewer. If the topic is harmful or \
+not something a quiz should be written about, return an empty `questions` list."""
 
-{_QUESTION_RULES}
-- test a concept in the excerpts, not trivia like page numbers or names of examples;
-- list the label(s) of the excerpt(s) it is based on in `sources`, e.g. ["S2"]."""
-
-ANYQUIZ_SYSTEM_PROMPT = f"""You write multiple-choice quiz questions on whatever topic the user \
-asks about, from your own knowledge.
-
-{_QUESTION_RULES}
-- only ask about facts that are well established and that you are confident about. If the \
-topic is too obscure, ambiguous, or recent to write accurate questions, write fewer questions \
-rather than guessing;
-- avoid questions whose answer depends on opinion or on events that may have changed;
-- leave `sources` as an empty list.
-
-If the topic is harmful or not something a quiz should be written about, return an empty \
-`questions` list."""
-
-VERIFY_SYSTEM_PROMPT = """Answer each multiple-choice question independently. For each one, \
-give the 0-based index of the correct choice, in the same order as the questions."""
+CHECK_SYSTEM_PROMPT = """You check quiz questions against their sources. For each question, \
+read ONLY the excerpts shown with it and give the 0-based index of the choice those excerpts \
+clearly support. If the excerpts don't clearly support exactly one choice, answer -1. Answer \
+every question, in order."""
 
 
 class QuizQuestion(BaseModel):
@@ -81,9 +76,7 @@ class QuizQuestion(BaseModel):
     choices: list[str] = Field(description="Exactly 4 answer choices")
     answer_index: int = Field(description="0-based index of the correct choice")
     explanation: str
-    sources: list[str] = Field(
-        default_factory=list, description='Excerpt labels the question is based on, e.g. ["S1"]'
-    )
+    sources: list[str] = Field(description='Excerpt labels that state the answer, e.g. ["S1"]')
 
 
 class QuizDraft(BaseModel):
@@ -91,7 +84,9 @@ class QuizDraft(BaseModel):
 
 
 class AnswerSheet(BaseModel):
-    answers: list[int] = Field(description="0-based index of the chosen answer, one per question")
+    answers: list[int] = Field(
+        description="Per question, the 0-based index of the supported choice, or -1"
+    )
 
 
 @dataclass
@@ -99,18 +94,15 @@ class Quiz:
     topic: str
     difficulty: Difficulty
     questions: list[QuizQuestion]
-    passages: list[Hit] = field(default_factory=list)  # empty for AnyQuiz
-    dropped: int = 0  # malformed or duplicate questions removed
-    failed_check: int = 0  # AnyQuiz questions removed because the self-check disagreed
-    checked: bool = False  # True if the AnyQuiz self-check ran successfully
+    passages: list[Passage]
+    source_title: str  # e.g. "your course materials" or "Super Mario Galaxy"
+    source_url: str | None = None
+    dropped: int = 0  # malformed or repeated questions removed
+    failed_check: int = 0  # questions removed because the source check disagreed
+    checked: bool = False  # True if the source check ran
 
-    @property
-    def grounded(self) -> bool:
-        return bool(self.passages)
-
-    def sources_for(self, question: QuizQuestion) -> list[Hit]:
-        numbers = [int(s.strip().lstrip("Ss")) for s in question.sources]
-        return [self.passages[n - 1] for n in numbers]
+    def sources_for(self, question: QuizQuestion) -> list[Passage]:
+        return [self.passages[n - 1] for n in _source_numbers(question)]
 
 
 class TopicNotCovered(CoursePilotError):
@@ -118,7 +110,7 @@ class TopicNotCovered(CoursePilotError):
         super().__init__(
             ErrorCode.TOPIC_NOT_COVERED,
             f'Your course materials don\'t cover "{topic}". Try AnyQuiz to get a quiz on any '
-            "topic, or pick a topic from your notes or slides.",
+            "topic from Wikipedia, or pick a topic from your notes or slides.",
             details={"topic": topic},
         )
 
@@ -151,54 +143,118 @@ def check_request(topic: str, n: int, difficulty: Difficulty | str) -> tuple[str
     return topic, level
 
 
-def validate_question(
-    question: QuizQuestion, num_sources: int = 0, require_sources: bool = True
-) -> bool:
+def _source_numbers(question: QuizQuestion) -> list[int]:
+    return [int(label.strip().lstrip("Ss")) for label in question.sources]
+
+
+def validate_question(question: QuizQuestion, num_sources: int) -> bool:
     choices = [c.strip().lower() for c in question.choices]
     if len(choices) != 4 or len(set(choices)) != 4 or not all(choices):
         return False
     if not 0 <= question.answer_index < 4:
         return False
-    if require_sources:
-        if not question.sources:
+    if not question.sources:
+        return False
+    for label in question.sources:
+        number = label.strip().lstrip("Ss")
+        if not number.isdigit() or not 1 <= int(number) <= num_sources:
             return False
-        for label in question.sources:
-            number = label.strip().lstrip("Ss")
-            if not number.isdigit() or not 1 <= int(number) <= num_sources:
-                return False
     return bool(question.question.strip() and question.explanation.strip())
 
 
-def _keep_valid(
-    questions: list[QuizQuestion], num_sources: int, require_sources: bool
-) -> list[QuizQuestion]:
+def _keep_valid(questions: list[QuizQuestion], num_sources: int) -> list[QuizQuestion]:
     """Drop malformed questions and repeats of an earlier question."""
     seen: set[str] = set()
     kept = []
     for q in questions:
         key = " ".join(q.question.lower().split())
-        if key not in seen and validate_question(q, num_sources, require_sources):
+        if key not in seen and validate_question(q, num_sources):
             seen.add(key)
             kept.append(q)
     return kept
 
 
-def _no_questions(topic: str, hint: str) -> CoursePilotError:
-    return CoursePilotError(
-        ErrorCode.NO_VALID_QUESTIONS,
-        f'Couldn\'t write usable questions about "{topic}". {hint}',
-        details={"topic": topic},
-    )
-
-
-def build_course_prompt(topic: str, hits: list[Hit], n: int, difficulty: Difficulty) -> str:
-    sources = "\n\n".join(
-        f"[S{i}] ({hit.chunk.citation})\n{hit.chunk.text}" for i, hit in enumerate(hits, start=1)
+def build_write_prompt(topic: str, passages: list[Passage], n: int, difficulty: Difficulty) -> str:
+    excerpts = "\n\n".join(
+        f"[S{i}] ({p.citation})\n{p.text}" for i, p in enumerate(passages, start=1)
     )
     return (
-        f"Course-material excerpts:\n\n{sources}\n\n"
+        f"Source excerpts:\n\n{excerpts}\n\n"
         f"Difficulty: {DIFFICULTY_GUIDE[difficulty]}\n\n"
         f"Write {n} questions about: {topic}"
+    )
+
+
+def build_check_prompt(questions: list[QuizQuestion], passages: list[Passage]) -> str:
+    """Each question with its choices and cited excerpts, without the answer key."""
+    blocks = []
+    for i, q in enumerate(questions, start=1):
+        choices = "\n".join(f"  {j}. {choice}" for j, choice in enumerate(q.choices))
+        excerpts = "\n".join(f"  > {passages[n - 1].text}" for n in _source_numbers(q))
+        blocks.append(f"Question {i}: {q.question}\n{choices}\nExcerpts:\n{excerpts}")
+    return "\n\n".join(blocks)
+
+
+def source_check(
+    llm: LLMProvider, questions: list[QuizQuestion], passages: list[Passage]
+) -> tuple[list[QuizQuestion], bool]:
+    """Keep questions whose answer key matches what their cited passages support.
+
+    Returns (kept questions, whether the check ran). If the answer sheet doesn't line up with
+    the questions, the check is skipped rather than guessing which answer belongs to which.
+    """
+    sheet = llm.generate(CHECK_SYSTEM_PROMPT, build_check_prompt(questions, passages), AnswerSheet)
+    if len(sheet.answers) != len(questions):
+        return questions, False
+    kept = [q for q, a in zip(questions, sheet.answers, strict=True) if a == q.answer_index]
+    return kept, True
+
+
+def _quiz_from_passages(
+    llm: LLMProvider,
+    topic: str,
+    level: Difficulty,
+    n: int,
+    passages: list[Passage],
+    source_title: str,
+    source_url: str | None,
+    check: bool,
+) -> Quiz:
+    requested = n + SPARE_QUESTIONS if check else n
+    draft = llm.generate(
+        WRITE_SYSTEM_PROMPT, build_write_prompt(topic, passages, requested, level), QuizDraft
+    )
+    valid = _keep_valid(draft.questions, len(passages))
+    if not valid:
+        raise CoursePilotError(
+            ErrorCode.NO_VALID_QUESTIONS,
+            f'Couldn\'t write usable questions about "{topic}" from {source_title}. '
+            "Try a more specific topic, or try again.",
+            details={"topic": topic},
+        )
+    dropped = len(draft.questions) - len(valid)
+    checked, failed = False, 0
+    if check:
+        kept, checked = source_check(llm, valid, passages)
+        failed = len(valid) - len(kept)
+        if not kept:
+            raise CoursePilotError(
+                ErrorCode.NO_VALID_QUESTIONS,
+                f'None of the questions about "{topic}" passed the source check, so none were '
+                "shown. Try again or try a more specific topic.",
+                details={"topic": topic, "failed_check": failed},
+            )
+        valid = kept
+    return Quiz(
+        topic,
+        level,
+        valid[:n],
+        passages,
+        source_title,
+        source_url,
+        dropped=dropped,
+        failed_check=failed,
+        checked=checked,
     )
 
 
@@ -208,47 +264,20 @@ def generate_quiz(
     topic: str,
     n: int = 5,
     difficulty: Difficulty | str = Difficulty.MEDIUM,
+    check: bool = True,
     k: int = 8,
     min_similarity: float = DEFAULT_MIN_SIMILARITY,
 ) -> Quiz:
-    """Course quiz: questions grounded in the loaded materials."""
+    """Course quiz: questions from passages in the loaded course materials."""
     topic, level = check_request(topic, n, difficulty)
     if retriever.top_similarity(topic) < min_similarity:
         raise TopicNotCovered(topic)
     mode = Mode.HYBRID_RERANK if retriever.reranker is not None else Mode.HYBRID
-    hits = retriever.search(topic, k=k, mode=mode)
-    draft = llm.generate(
-        COURSE_SYSTEM_PROMPT, build_course_prompt(topic, hits, n, level), QuizDraft
-    )
-    valid = _keep_valid(draft.questions, len(hits), require_sources=True)
-    if not valid:
-        raise _no_questions(topic, "Try a broader topic, or try again.")
-    return Quiz(topic, level, valid[:n], hits, dropped=len(draft.questions) - len(valid))
-
-
-def build_anyquiz_prompt(topic: str, n: int, difficulty: Difficulty) -> str:
-    return f"Topic: {topic}\nDifficulty: {DIFFICULTY_GUIDE[difficulty]}\nWrite {n} questions."
-
-
-def build_verify_prompt(questions: list[QuizQuestion]) -> str:
-    blocks = []
-    for i, q in enumerate(questions, start=1):
-        choices = "\n".join(f"  {j}. {choice}" for j, choice in enumerate(q.choices))
-        blocks.append(f"Question {i}: {q.question}\n{choices}")
-    return "\n\n".join(blocks)
-
-
-def self_check(llm: LLMProvider, questions: list[QuizQuestion]) -> tuple[list[QuizQuestion], bool]:
-    """Keep questions the model answers the same way without seeing the key.
-
-    Returns (kept questions, whether the check ran). If the model's answer sheet doesn't line
-    up with the questions, the check is skipped rather than guessing which answer is which.
-    """
-    sheet = llm.generate(VERIFY_SYSTEM_PROMPT, build_verify_prompt(questions), AnswerSheet)
-    if len(sheet.answers) != len(questions):
-        return questions, False
-    kept = [q for q, a in zip(questions, sheet.answers, strict=True) if a == q.answer_index]
-    return kept, True
+    passages = [
+        Passage(hit.chunk.citation, hit.chunk.text)
+        for hit in retriever.search(topic, k=k, mode=mode)
+    ]
+    return _quiz_from_passages(llm, topic, level, n, passages, "your course materials", None, check)
 
 
 def generate_anyquiz(
@@ -256,30 +285,13 @@ def generate_anyquiz(
     topic: str,
     n: int = 5,
     difficulty: Difficulty | str = Difficulty.MEDIUM,
-    verify: bool = True,
+    check: bool = True,
+    source: WikipediaSource | None = None,
 ) -> Quiz:
-    """AnyQuiz: questions on any topic from the model's own knowledge, optionally self-checked."""
+    """AnyQuiz: any topic, with questions from the best-matching Wikipedia article."""
     topic, level = check_request(topic, n, difficulty)
-    # Ask for a couple of spares when checking, since some questions may be dropped.
-    requested = min(n + 2, MAX_QUESTIONS + 2) if verify else n
-    draft = llm.generate(
-        ANYQUIZ_SYSTEM_PROMPT, build_anyquiz_prompt(topic, requested, level), QuizDraft
+    article = (source or WikipediaSource()).find_article(topic)
+    passages = article_passages(article)
+    return _quiz_from_passages(
+        llm, topic, level, n, passages, f"Wikipedia: {article.title}", article.url, check
     )
-    valid = _keep_valid(draft.questions, 0, require_sources=False)
-    if not valid:
-        raise _no_questions(
-            topic, "It may be too obscure, too vague, or not a suitable quiz topic."
-        )
-    dropped = len(draft.questions) - len(valid)
-    checked, failed = False, 0
-    if verify:
-        kept, checked = self_check(llm, valid)
-        failed = len(valid) - len(kept)
-        if not kept:
-            raise _no_questions(
-                topic,
-                "The self-check couldn't confirm any of the answers, so none were shown. "
-                "Try a more specific or better-known topic.",
-            )
-        valid = kept
-    return Quiz(topic, level, valid[:n], dropped=dropped, failed_check=failed, checked=checked)

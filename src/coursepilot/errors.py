@@ -21,8 +21,11 @@ class ErrorCode(StrEnum):
     TOPIC_TOO_LONG = "TOPIC_TOO_LONG"
     INVALID_QUESTION_COUNT = "INVALID_QUESTION_COUNT"
     INVALID_DIFFICULTY = "INVALID_DIFFICULTY"
-    # The loaded course materials can't support the request.
+    # No source can support the request.
     TOPIC_NOT_COVERED = "TOPIC_NOT_COVERED"
+    SOURCE_NOT_FOUND = "SOURCE_NOT_FOUND"
+    # The source (Wikipedia) couldn't be reached.
+    SOURCE_UNAVAILABLE = "SOURCE_UNAVAILABLE"
     # The LLM provider failed or isn't set up.
     NO_LLM_CONFIGURED = "NO_LLM_CONFIGURED"
     LLM_AUTH_FAILED = "LLM_AUTH_FAILED"
@@ -51,7 +54,9 @@ CATALOG: dict[ErrorCode, ErrorInfo] = {
     ErrorCode.TOPIC_TOO_LONG: _INPUT,
     ErrorCode.INVALID_QUESTION_COUNT: _INPUT,
     ErrorCode.INVALID_DIFFICULTY: _INPUT,
-    ErrorCode.TOPIC_NOT_COVERED: ErrorInfo("not in materials", retryable=False, exit_code=3),
+    ErrorCode.TOPIC_NOT_COVERED: ErrorInfo("no source", retryable=False, exit_code=3),
+    ErrorCode.SOURCE_NOT_FOUND: ErrorInfo("no source", retryable=False, exit_code=3),
+    ErrorCode.SOURCE_UNAVAILABLE: ErrorInfo("source service", retryable=True, exit_code=5),
     ErrorCode.NO_LLM_CONFIGURED: ErrorInfo("configuration", retryable=False, exit_code=4),
     ErrorCode.LLM_AUTH_FAILED: ErrorInfo("configuration", retryable=False, exit_code=4),
     ErrorCode.LLM_RATE_LIMITED: ErrorInfo("LLM service", retryable=True, exit_code=5),

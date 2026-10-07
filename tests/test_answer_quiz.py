@@ -102,12 +102,13 @@ def test_generate_quiz_drops_invalid_questions_and_maps_sources(retriever: Retri
             question(question="What does the median measure? "),  # repeat of the first
         ]
     )
-    quiz = generate_quiz(retriever, FakeLLM(structured=draft), "median", n=5, k=3)
+    quiz = generate_quiz(retriever, FakeLLM(structured=draft), "median", n=5, check=False, k=3)
 
     assert isinstance(quiz, Quiz)
     assert len(quiz.questions) == 2
     assert quiz.dropped == 2
     assert quiz.sources_for(quiz.questions[1]) == [quiz.passages[1]]
+    assert quiz.source_title == "your course materials"
 
 
 def test_quiz_on_a_topic_outside_the_materials_never_calls_the_llm(retriever: Retriever):
