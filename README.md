@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/RettWilson22/coursepilot/actions/workflows/ci.yml/badge.svg)](https://github.com/RettWilson22/coursepilot/actions/workflows/ci.yml)
 
-Ask questions about your course materials and get answers that cite the exact page they came from. Generate practice quizzes from the same materials. And see how accurate the retrieval actually is, measured on a fixed question set instead of assumed.
+Ask questions about your course materials and get answers that cite the exact page they came from. Generate practice quizzes from the same materials, or use **AnyQuiz** to get a quiz on any topic at all, at **easy, medium, or hard** difficulty. And see how accurate the retrieval actually is, measured on a fixed question set instead of assumed.
 
 Works with PDFs (slides, notes, textbooks), PowerPoint decks, Markdown, and plain text. Answers come from **Groq** (free tier) or **Claude**, or from an offline mode that quotes the matching passages with no API key at all.
 
@@ -35,6 +35,43 @@ Off-topic questions that still get through: "SOLID principles", "public-key cryp
 
 > These are small evaluation sets: about ±10 points of uncertainty on 75 questions, more on the held-out set. Read differences of a few points as indicative.
 
+## AnyQuiz: a quiz on any topic
+
+Type any topic (*Super Mario Galaxy*, *the French Revolution*, *photosynthesis*), pick **Easy**, **Medium**, or **Hard**, and the AI writes a multiple-choice quiz from its own knowledge. Take it in the app and get graded, with an explanation for every answer.
+
+| Difficulty | What the questions test |
+|---|---|
+| Easy | Recall of basic facts and definitions; wrong choices are clearly wrong |
+| Medium | Understanding and application; plausible wrong choices |
+| Hard | Multi-step reasoning and edge cases; wrong choices based on common misconceptions |
+
+**Double-check.** A quiz written from memory can have a wrong answer key. That's worse than useless when you're studying. So after writing the quiz, AnyQuiz runs a second pass that answers every question **without seeing the key**. Questions where the two passes disagree are left out, and the app says how many. The quiz asks for a couple of spare questions so you still get the number you asked for. You can turn the check off for a faster quiz.
+
+AnyQuiz is clearly labeled as written from general knowledge, separate from the **Course quiz**, which only uses your materials and cites a source for every question. If you ask the course quiz about something your materials don't cover, it declines and points you to AnyQuiz.
+
+## Error codes
+
+Every failure is a `CoursePilotError` ([`errors.py`](src/coursepilot/errors.py)) with a stable **code**, a **message** that's safe to show users, a **retryable** flag, and optional machine-readable **details** (such as the provider's HTTP status). The web app shows the message and the code. The CLI prints `Error [CODE]: message` and exits with the category's exit code.
+
+| Code | When | Retryable | CLI exit |
+|---|---|---|---|
+| `EMPTY_TOPIC` | No topic given | no | 2 |
+| `TOPIC_TOO_LONG` | Topic over 200 characters | no | 2 |
+| `INVALID_QUESTION_COUNT` | Not 1–10 questions | no | 2 |
+| `INVALID_DIFFICULTY` | Not easy / medium / hard | no | 2 |
+| `TOPIC_NOT_COVERED` | Course quiz topic isn't in the loaded materials | no | 3 |
+| `NO_LLM_CONFIGURED` | No `GROQ_API_KEY` or `ANTHROPIC_API_KEY` | no | 4 |
+| `LLM_AUTH_FAILED` | API key rejected | no | 4 |
+| `LLM_RATE_LIMITED` | Provider rate limit | yes | 5 |
+| `LLM_UNAVAILABLE` | Network error or provider 5xx | yes | 5 |
+| `LLM_REQUEST_REJECTED` | Provider 4xx (e.g. invalid model) | no | 5 |
+| `LLM_REFUSED` | Model declined the request | no | 5 |
+| `LLM_BAD_RESPONSE` | Malformed or truncated response, even after one repair attempt | yes | 5 |
+| `NO_VALID_QUESTIONS` | Nothing usable survived validation and the double-check | yes | 6 |
+| `INTERNAL_ERROR` | An unexpected bug (logged with a traceback) | no | 1 |
+
+Invalid input is rejected **before** any API call. A test checks that every code has a catalog entry.
+
 ## How it works
 
 ```
@@ -52,8 +89,9 @@ Off-topic questions that still get through: "SOLID principles", "public-key cryp
  answer.py  off-topic check → prompt with labeled passages [S1]..[Sn]
         │   → LLM streams an answer → citations checked against the passages
         ▼
- quiz.py    same retrieval → structured JSON quiz → each question validated
+ quiz.py    course quiz: same retrieval → structured JSON quiz → each question validated
             (4 distinct choices, valid answer, cites a real passage) or dropped
+            AnyQuiz: topic + difficulty → quiz from model knowledge → double-check pass
 ```
 
 | Module | Responsibility |
@@ -64,9 +102,10 @@ Off-topic questions that still get through: "SOLID principles", "public-key cryp
 | [`retrieval.py`](src/coursepilot/retrieval.py) | Four retrieval modes behind one interface, so the eval compares them on identical inputs. |
 | [`llm.py`](src/coursepilot/llm.py) | Claude, Groq, and offline providers behind one small interface. |
 | [`answer.py`](src/coursepilot/answer.py) | Off-topic check, prompt, streaming, citation validation. |
-| [`quiz.py`](src/coursepilot/quiz.py) | Quiz generation and validation. |
+| [`quiz.py`](src/coursepilot/quiz.py) | Course quiz and AnyQuiz, difficulty levels, validation, double-check. |
+| [`errors.py`](src/coursepilot/errors.py) | Error codes, messages, retryability, and CLI exit codes. |
 | [`evaluation.py`](src/coursepilot/evaluation.py) | Recall@k, MRR, and off-topic metrics. |
-| [`app/streamlit_app.py`](app/streamlit_app.py) | Web UI: chat with sources, interactive quiz with grading, eval results. |
+| [`app/streamlit_app.py`](app/streamlit_app.py) | Web UI: chat with sources, course quiz, AnyQuiz, grading, eval results. |
 
 ## Design decisions
 
@@ -106,7 +145,8 @@ Then:
 ```bash
 streamlit run app/streamlit_app.py                       # web app
 coursepilot ask "Why can k-means give different clusters on different runs?"
-coursepilot quiz "hypothesis testing" -n 5
+coursepilot quiz "hypothesis testing" -n 5 -d hard       # from your materials
+coursepilot anyquiz "Super Mario Galaxy" -d easy          # any topic
 coursepilot eval                                         # reproduce the table above, in seconds
 ```
 
@@ -128,17 +168,18 @@ Use your own materials with `coursepilot ingest path/to/slides/`, or upload file
 ## Testing
 
 ```bash
-pytest                 # 84 tests, about 15 s, no downloads or API keys needed (fake models and LLM)
+pytest                 # 118 tests, about 15 s, no downloads or API keys needed (fake models and LLM)
 pytest -m slow         # real embedding/reranking models; includes a guard that fails
                        # if textbook Recall@10 drops below 95% or MRR below 0.80
 ruff check . && mypy src app/streamlit_app.py
 ```
 
-The fast tests cover every module (93% line coverage), the CLI end to end, and the web app through Streamlit's `AppTest`: asking, declining, and taking and grading a quiz. CI runs lint, strict type checking, and tests on every push.
+The fast tests cover every module (96% line coverage), every error code, the CLI end to end including exit codes, and the web app through Streamlit's `AppTest`: asking, declining, taking and grading both kinds of quiz, and how errors are shown. CI runs lint, strict type checking, and tests on every push.
 
 ## Limitations
 
 - **Live LLM calls aren't part of the test suite.** Claude and Groq are tested against their SDK interfaces with fake clients (exact request parameters, error handling, refusals). Answer *quality* hasn't been evaluated, only retrieval.
+- **AnyQuiz's double-check reduces wrong answer keys but doesn't eliminate them.** If the model is confidently wrong both times, the error survives. Its accuracy hasn't been measured.
 - **Scanned PDFs need OCR**, which isn't included. Image-only pages are skipped.
 - **Printed page detection** looks for headers/footers like "12 • Chapter title". Documents without them fall back to PDF page numbers.
 - **Evaluation scope:** one textbook, AI-drafted questions reviewed by one person, single-page labels. See [`eval/README.md`](eval/README.md).

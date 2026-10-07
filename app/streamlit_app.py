@@ -5,8 +5,10 @@ Run with:  streamlit run app/streamlit_app.py
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 import streamlit as st
@@ -15,6 +17,7 @@ from streamlit.runtime.uploaded_file_manager import UploadedFile
 from coursepilot.answer import AnswerEngine
 from coursepilot.chunking import chunk_pages
 from coursepilot.documents import SUPPORTED_SUFFIXES, load_document
+from coursepilot.errors import CoursePilotError, ErrorCode
 from coursepilot.index import (
     CorpusIndex,
     Embedder,
@@ -22,8 +25,15 @@ from coursepilot.index import (
     SentenceTransformerEmbedder,
     default_index_dir,
 )
-from coursepilot.llm import LLMError, make_provider
-from coursepilot.quiz import TopicNotCovered, generate_quiz
+from coursepilot.llm import make_provider
+from coursepilot.quiz import (
+    MAX_QUESTIONS,
+    MAX_TOPIC_CHARS,
+    Difficulty,
+    Quiz,
+    generate_anyquiz,
+    generate_quiz,
+)
 from coursepilot.retrieval import CrossEncoderReranker, Hit, Retriever
 from coursepilot.sample import build_sample_index
 
@@ -34,6 +44,16 @@ USE_SAMPLE = os.environ.get("COURSEPILOT_SAMPLE", "1") != "0"
 DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 st.set_page_config(page_title="CoursePilot", page_icon="🎓", layout="wide")
+logger = logging.getLogger("coursepilot.app")
+
+# Errors caused by what the user typed are shown as information, not as failures.
+_INPUT_ERRORS = {
+    ErrorCode.EMPTY_TOPIC,
+    ErrorCode.TOPIC_TOO_LONG,
+    ErrorCode.INVALID_QUESTION_COUNT,
+    ErrorCode.INVALID_DIFFICULTY,
+    ErrorCode.TOPIC_NOT_COVERED,
+}
 
 
 @st.cache_resource(show_spinner="Loading models...")
@@ -139,7 +159,85 @@ st.sidebar.caption(f"Using: **{llm.name}**")
 retriever = Retriever(index, embedder, reranker)
 engine = AnswerEngine(retriever, llm)
 
-ask_tab, quiz_tab, eval_tab = st.tabs(["💬 Ask", "📝 Practice quiz", "📊 How accurate is it?"])
+
+def show_error(error: CoursePilotError) -> None:
+    hint = " Trying again may work." if error.retryable else ""
+    (st.info if error.code in _INPUT_ERRORS else st.error)(error.message + hint)
+    st.caption(f"Error code: `{error.code}`")
+
+
+def guarded(action: Callable[[], Quiz]) -> Quiz | None:
+    """Run a quiz request, turning every failure into a coded, user-facing message."""
+    try:
+        return action()
+    except CoursePilotError as e:
+        logger.info("quiz request failed: %r", e)
+        show_error(e)
+    except Exception:
+        logger.exception("unexpected error while generating a quiz")
+        show_error(
+            CoursePilotError(
+                ErrorCode.INTERNAL_ERROR, "Something went wrong on our side. Please try again."
+            )
+        )
+    return None
+
+
+def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficulty], Quiz]) -> None:
+    """Form, quiz, and grading. `key` keeps each tab's quiz state separate."""
+    with st.form(f"{key}_form"):
+        topic = st.text_input("Quiz me on", placeholder=placeholder, max_chars=MAX_TOPIC_CHARS)
+        level = st.radio(
+            "Difficulty", [d.value.title() for d in Difficulty], index=1, horizontal=True
+        )
+        count = st.slider("Number of questions", 3, MAX_QUESTIONS, 5)
+        submitted = st.form_submit_button("Generate quiz")
+    if submitted:
+        with st.spinner("Writing your quiz..."):
+            quiz = guarded(lambda: generate(topic, count, Difficulty(level.lower())))
+        if quiz is not None:
+            st.session_state[f"{key}_quiz"] = quiz
+            st.session_state[f"{key}_id"] = st.session_state.get(f"{key}_id", 0) + 1
+            st.session_state[f"{key}_graded"] = False
+
+    quiz = st.session_state.get(f"{key}_quiz")
+    if quiz is None:
+        return
+    quiz_id = st.session_state[f"{key}_id"]
+    st.subheader(f"{quiz.topic} · {quiz.difficulty.value.title()}")
+    if not quiz.grounded:
+        note = "Written by AI from general knowledge, not from your course materials."
+        if quiz.checked:
+            note += " Answers were double-checked by a second, independent pass."
+        st.caption(note)
+    picks = [
+        st.radio(f"**{i}. {q.question}**", q.choices, index=None, key=f"{key}_{quiz_id}_q{i}")
+        for i, q in enumerate(quiz.questions, start=1)
+    ]
+    if st.button("Check answers", key=f"{key}_check"):
+        st.session_state[f"{key}_graded"] = True
+    if st.session_state.get(f"{key}_graded"):
+        pairs = list(zip(picks, quiz.questions, strict=True))
+        score = sum(p == q.choices[q.answer_index] for p, q in pairs)
+        st.subheader(f"Score: {score} / {len(quiz.questions)}")
+        for i, (pick, q) in enumerate(pairs, start=1):
+            correct = q.choices[q.answer_index]
+            mark = "✅" if pick == correct else "❌"
+            st.markdown(f"{mark} **{i}.** Correct answer: *{correct}*. {q.explanation}")
+            if quiz.grounded:
+                st.caption("Source: " + ", ".join(h.chunk.citation for h in quiz.sources_for(q)))
+    removed = []
+    if quiz.dropped:
+        removed.append(f"{quiz.dropped} malformed or repeated")
+    if quiz.failed_check:
+        removed.append(f"{quiz.failed_check} whose answer the double-check disagreed with")
+    if removed:
+        st.caption("Left out " + " and ".join(removed) + " question(s).")
+
+
+ask_tab, course_tab, anyquiz_tab, eval_tab = st.tabs(
+    ["💬 Ask", "📝 Course quiz", "🎲 AnyQuiz", "📊 How accurate is it?"]
+)
 
 # --- Ask -----------------------------------------------------------------------------------
 
@@ -159,8 +257,8 @@ with ask_tab:
             answer, tokens = engine.stream(question)
             try:
                 st.write_stream(tokens)
-            except LLMError as e:
-                st.error(str(e))
+            except CoursePilotError as e:
+                show_error(e)
             else:
                 render_sources(answer.cited_hits)
                 if answer.invalid_citations:
@@ -172,50 +270,29 @@ with ask_tab:
                     {"question": question, "text": answer.text, "sources": answer.cited_hits}
                 )
 
-# --- Quiz ----------------------------------------------------------------------------------
+# --- Quizzes -------------------------------------------------------------------------------
 
-with quiz_tab:
-    with st.form("quiz_form"):
-        topic = st.text_input(
-            "Quiz me on", placeholder="e.g. hypothesis testing, k-means clustering", max_chars=200
-        )
-        count = st.slider("Number of questions", 3, 10, 5)
-        make_quiz = st.form_submit_button("Generate quiz")
-    if make_quiz and topic.strip():
-        with st.spinner("Writing questions from your materials..."):
-            try:
-                st.session_state.quiz = generate_quiz(retriever, llm, topic, n=count)
-                st.session_state.quiz_checked = False
-            except TopicNotCovered as e:
-                st.session_state.quiz = None
-                st.info(str(e))
-            except LLMError as e:
-                st.error(str(e))
+with course_tab:
+    st.markdown("Questions written **only from your course materials**, each with its source.")
+    quiz_tab(
+        "course",
+        "e.g. hypothesis testing, k-means clustering",
+        lambda topic, n, level: generate_quiz(retriever, llm, topic, n, level),
+    )
 
-    quiz = st.session_state.get("quiz")
-    if quiz:
-        if not quiz.questions:
-            st.warning("No valid questions came back. Try a broader topic.")
-        picks = []
-        for i, q in enumerate(quiz.questions):
-            st.markdown(f"**{i + 1}. {q.question}**")
-            picks.append(
-                st.radio("Answer", q.choices, index=None, key=f"q{i}", label_visibility="collapsed")
-            )
-        if quiz.questions and st.button("Check answers"):
-            st.session_state.quiz_checked = True
-        if st.session_state.get("quiz_checked"):
-            score = sum(
-                p == q.choices[q.answer_index] for p, q in zip(picks, quiz.questions, strict=True)
-            )
-            st.subheader(f"Score: {score} / {len(quiz.questions)}")
-            for i, (pick, q) in enumerate(zip(picks, quiz.questions, strict=True)):
-                correct = q.choices[q.answer_index]
-                mark = "✅" if pick == correct else "❌"
-                st.markdown(f"{mark} **{i + 1}.** Correct answer: *{correct}*. {q.explanation}")
-                st.caption("Source: " + ", ".join(h.chunk.citation for h in quiz.sources_for(q)))
-        if quiz.dropped:
-            st.caption(f"{quiz.dropped} generated question(s) failed validation and were left out.")
+with anyquiz_tab:
+    st.markdown("**Any topic you like.** The AI writes the quiz from what it knows.")
+    double_check = st.toggle(
+        "Double-check answers",
+        value=True,
+        help="A second pass answers each question without seeing the answer key. Questions "
+        "where the two disagree are left out. Takes a little longer.",
+    )
+    quiz_tab(
+        "anyquiz",
+        "e.g. Super Mario Galaxy, the French Revolution, photosynthesis",
+        lambda topic, n, level: generate_anyquiz(llm, topic, n, level, verify=double_check),
+    )
 
 # --- Evaluation ----------------------------------------------------------------------------
 

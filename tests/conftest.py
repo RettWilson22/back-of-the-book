@@ -56,7 +56,10 @@ class FakeLLM:
             yield word if i == len(words) - 1 else word + " "
 
     def generate(self, system: str, user: str, schema: type[BaseModel]) -> Any:
+        """Return `structured`, or `structured[schema]` when given one response per schema."""
         self.prompts.append((system, user))
+        if isinstance(self.structured, dict):
+            return self.structured[schema]
         return self.structured
 
 
