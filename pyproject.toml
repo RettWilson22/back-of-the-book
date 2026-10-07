@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "coursepilot"
+version = "0.1.0"
+description = "Course assistant that answers questions from your course materials with page-level citations, writes practice quizzes, and measures its own retrieval accuracy."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Rett Wilson" }]
+dependencies = [
+    "numpy>=1.26",
+    "pydantic>=2.6",
+    "pypdf>=4.0",
+    "python-pptx>=0.6.23",
+    "rank-bm25>=0.2.2",
+    "sentence-transformers>=3.0",
+]
+
+[project.optional-dependencies]
+claude = ["anthropic>=0.70"]
+groq = ["groq>=0.11"]
+app = ["streamlit>=1.40"]
+dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6", "mypy>=1.10", "reportlab>=4.0"]
+
+[project.scripts]
+coursepilot = "coursepilot.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-m 'not slow'"
+markers = ["slow: downloads real models or reads the full textbook (run with -m slow)"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["SIM905"]  # a split() word list reads better than a 300-character list literal
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
