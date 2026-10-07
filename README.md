@@ -81,7 +81,7 @@ Off-topic questions that still get through: "SOLID principles", "public-key cryp
 
 **Live demo: https://coursepilot-rettwilson.streamlit.app**
 
-It's preloaded with the sample textbook. Ask a question, or open **Practice quiz** and pick a topic. You can also upload your own slides or notes in the sidebar; they stay in your session only. If the app has been idle it may take a minute to wake up.
+It's preloaded with the sample textbook. Ask a question, or open **Practice quiz** and pick a topic. You can also upload your own slides or notes in the sidebar; they stay in your session only.
 
 ## Getting started
 
@@ -89,10 +89,9 @@ It's preloaded with the sample textbook. Ask a question, or open **Practice quiz
 git clone https://github.com/RettWilson22/coursepilot && cd coursepilot
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e ".[groq,claude,app,dev]"
-
-python scripts/download_corpus.py           # sample textbook from OpenStax (checksum-verified)
-coursepilot ingest data/corpus               # about a minute on a laptop
 ```
+
+The repo ships a prebuilt index of the sample textbook (`data/index`, 3.7 MB), so there's nothing to download or build before you start.
 
 Pick an LLM (or skip this for offline, quote-only answers):
 
@@ -108,7 +107,7 @@ Then:
 streamlit run app/streamlit_app.py                       # web app
 coursepilot ask "Why can k-means give different clusters on different runs?"
 coursepilot quiz "hypothesis testing" -n 5
-coursepilot eval --output eval/results.md                # reproduce the table above
+coursepilot eval                                         # reproduce the table above, in seconds
 ```
 
 Use your own materials with `coursepilot ingest path/to/slides/`, or upload files in the web app's sidebar.
@@ -118,18 +117,18 @@ Use your own materials with `coursepilot ingest path/to/slides/`, or upload file
 | `COURSEPILOT_LLM` | `groq` if `GROQ_API_KEY` is set, else `claude` if `ANTHROPIC_API_KEY` is set, else `extractive` |
 | `COURSEPILOT_GROQ_MODEL` | `openai/gpt-oss-120b` |
 | `COURSEPILOT_CLAUDE_MODEL` / `COURSEPILOT_CLAUDE_EFFORT` | `claude-opus-5-5` / `medium` |
-| `COURSEPILOT_INDEX` (web app) | `.coursepilot/index` |
+| `COURSEPILOT_INDEX` (web app) | your `.coursepilot/index` if you've run `ingest`, else the bundled `data/index` |
 
 ### Deploy your own (Streamlit Community Cloud, free)
 
 1. Fork this repo, then at [share.streamlit.io](https://share.streamlit.io) choose **Create app → Deploy a public app from GitHub**.
 2. Repository: your fork, branch `main`, main file `app/streamlit_app.py`. Under **Advanced settings**, pick Python 3.12 and add `GROQ_API_KEY = "..."` as a secret.
-3. Deploy. On first start the app downloads the sample textbook and builds the index (about a minute). Peak memory is about 0.6 GB. Set the secret `COURSEPILOT_SAMPLE = "0"` to skip the sample and use uploads only.
+3. Deploy. The bundled index loads at startup, so there's no setup step. Peak memory is about 0.6 GB.
 
 ## Testing
 
 ```bash
-pytest                 # 82 tests, about 15 s, no downloads or API keys needed (fake models and LLM)
+pytest                 # 84 tests, about 15 s, no downloads or API keys needed (fake models and LLM)
 pytest -m slow         # real embedding/reranking models; includes a guard that fails
                        # if textbook Recall@10 drops below 95% or MRR below 0.80
 ruff check . && mypy src app/streamlit_app.py
@@ -146,4 +145,4 @@ The fast tests cover every module (93% line coverage), the CLI end to end, and t
 
 ## License
 
-Code: MIT. Evaluation questions: CC BY-NC-SA 4.0, as a derivative of the OpenStax textbook ([details](eval/README.md)). The textbook isn't redistributed here.
+Code: MIT. Evaluation questions and the bundled sample index: CC BY-NC-SA 4.0, as derivatives of the OpenStax textbook ([eval](eval/README.md), [data](data/README.md)). The textbook PDF itself isn't redistributed here.
