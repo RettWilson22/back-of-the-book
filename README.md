@@ -1,5 +1,7 @@
 # CoursePilot
 
+[![CI](https://github.com/RettWilson22/coursepilot/actions/workflows/ci.yml/badge.svg)](https://github.com/RettWilson22/coursepilot/actions/workflows/ci.yml)
+
 Ask questions about your course materials and get answers that cite the exact page they came from. Generate practice quizzes from the same materials. And see how accurate the retrieval actually is, measured on a fixed question set instead of assumed.
 
 Works with PDFs (slides, notes, textbooks), PowerPoint decks, Markdown, and plain text. Answers come from **Groq** (free tier) or **Claude**, or from an offline mode that quotes the matching passages with no API key at all.
