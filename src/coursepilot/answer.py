@@ -18,7 +18,8 @@ SYSTEM_PROMPT = """You are a teaching assistant answering a student's question u
 course-material excerpts provided.
 
 - Base every statement on the excerpts. Do not add outside knowledge.
-- Cite the excerpt(s) supporting each statement with their labels, like [S1] or [S2][S3].
+- Cite the excerpt(s) supporting each statement in square brackets, exactly like [S1] or \
+[S2][S3].
 - If the excerpts do not contain the answer, say that the course materials don't cover it \
 and stop. Do not guess.
 - Be concise and clear, the way a good TA explains things. Use short paragraphs or bullets."""
@@ -28,7 +29,9 @@ NOT_FOUND_MESSAGE = (
     "Try rephrasing, or check that the right documents are loaded."
 )
 
-_CITATION = re.compile(r"\[S(\d+)\]")
+# Models don't always follow the requested format, so accept [S1], (S1), [S1][S2],
+# (S1, S2), and [S1; S3]. Each bracketed group may list several labels.
+_CITATION_GROUP = re.compile(r"[\[(]\s*S\d+(?:\s*[,;]\s*S?\d+)*\s*[\])]")
 
 
 def build_prompt(question: str, hits: list[Hit]) -> str:
@@ -42,11 +45,12 @@ def extract_citations(text: str, num_sources: int) -> tuple[list[int], list[int]
     """Return (valid, invalid) source numbers cited in `text`, each in first-seen order."""
     valid: list[int] = []
     invalid: list[int] = []
-    for match in _CITATION.finditer(text):
-        n = int(match.group(1))
-        bucket = valid if 1 <= n <= num_sources else invalid
-        if n not in bucket:
-            bucket.append(n)
+    for group in _CITATION_GROUP.finditer(text):
+        for number in re.findall(r"\d+", group.group()):
+            n = int(number)
+            bucket = valid if 1 <= n <= num_sources else invalid
+            if n not in bucket:
+                bucket.append(n)
     return valid, invalid
 
 
