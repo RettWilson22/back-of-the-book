@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pydantic import BaseModel, Field
 
 from coursepilot.llm import LLMProvider
-from coursepilot.retrieval import Hit, Mode, Retriever
+from coursepilot.retrieval import DEFAULT_MIN_SIMILARITY, Hit, Mode, Retriever
 
 SYSTEM_PROMPT = """You write practice quiz questions for a university course, using ONLY the \
 course-material excerpts provided.
@@ -23,6 +23,16 @@ names of examples;
 - have exactly 4 answer choices, one clearly correct, with plausible wrong choices;
 - include a one or two sentence explanation of why the correct choice is right;
 - list the label(s) of the excerpt(s) it is based on in `sources`, e.g. ["S2"]."""
+
+
+class TopicNotCovered(ValueError):
+    """The topic is too far from anything in the loaded materials to write grounded questions."""
+
+    def __init__(self, topic: str) -> None:
+        super().__init__(
+            f"Your course materials don't cover \"{topic}\", so there's nothing to quiz you on. "
+            "Try a topic from your notes or slides."
+        )
 
 
 class QuizQuestion(BaseModel):
@@ -72,8 +82,15 @@ def validate_question(question: QuizQuestion, num_sources: int) -> bool:
 
 
 def generate_quiz(
-    retriever: Retriever, llm: LLMProvider, topic: str, n: int = 5, k: int = 8
+    retriever: Retriever,
+    llm: LLMProvider,
+    topic: str,
+    n: int = 5,
+    k: int = 8,
+    min_similarity: float = DEFAULT_MIN_SIMILARITY,
 ) -> Quiz:
+    if retriever.top_similarity(topic) < min_similarity:
+        raise TopicNotCovered(topic)
     mode = Mode.HYBRID_RERANK if retriever.reranker is not None else Mode.HYBRID
     hits = retriever.search(topic, k=k, mode=mode)
     draft = llm.generate(SYSTEM_PROMPT, build_prompt(topic, hits, n), QuizDraft)

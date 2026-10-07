@@ -20,6 +20,9 @@ if TYPE_CHECKING:
     from sentence_transformers import CrossEncoder
 
 DEFAULT_RERANKER = "cross-encoder/ms-marco-MiniLM-L6-v2"
+# Below this best-match cosine similarity, the materials don't cover the request. Chosen on
+# eval/questions.jsonl and checked on eval/heldout.jsonl (see eval/README.md).
+DEFAULT_MIN_SIMILARITY = 0.35
 
 # Common English function words; removing them keeps BM25 focused on content terms.
 STOPWORDS = frozenset(

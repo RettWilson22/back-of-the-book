@@ -12,7 +12,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 
 from coursepilot.llm import LLMProvider
-from coursepilot.retrieval import Hit, Mode, Retriever
+from coursepilot.retrieval import DEFAULT_MIN_SIMILARITY, Hit, Mode, Retriever
 
 SYSTEM_PROMPT = """You are a teaching assistant answering a student's question using ONLY the \
 course-material excerpts provided.
@@ -74,7 +74,7 @@ class AnswerEngine:
         retriever: Retriever,
         llm: LLMProvider,
         k: int = 6,
-        min_similarity: float = 0.35,
+        min_similarity: float = DEFAULT_MIN_SIMILARITY,
         mode: Mode = Mode.HYBRID_RERANK,
     ) -> None:
         self.retriever = retriever
