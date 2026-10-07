@@ -23,7 +23,7 @@ from coursepilot.index import (
     default_index_dir,
 )
 from coursepilot.llm import LLMError, make_provider
-from coursepilot.quiz import generate_quiz
+from coursepilot.quiz import TopicNotCovered, generate_quiz
 from coursepilot.retrieval import CrossEncoderReranker, Hit, Retriever
 from coursepilot.sample import build_sample_index
 
@@ -186,6 +186,9 @@ with quiz_tab:
             try:
                 st.session_state.quiz = generate_quiz(retriever, llm, topic, n=count)
                 st.session_state.quiz_checked = False
+            except TopicNotCovered as e:
+                st.session_state.quiz = None
+                st.info(str(e))
             except LLMError as e:
                 st.error(str(e))
 

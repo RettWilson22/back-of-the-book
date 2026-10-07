@@ -80,3 +80,12 @@ def test_quiz_generates_and_grades_answers(app):
 
     assert not at.exception
     assert any(s.value == "Score: 1 / 1" for s in at.subheader)
+
+
+def test_quiz_on_off_topic_subject_explains_why(app):
+    at = app(FakeLLM(structured=QuizDraft(questions=[])))
+    at.text_input[0].set_value("volcano eruption lava")
+    at.button[0].click().run()
+
+    assert not at.exception
+    assert any("don't cover" in i.value for i in at.info)

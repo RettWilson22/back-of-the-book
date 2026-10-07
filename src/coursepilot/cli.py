@@ -72,7 +72,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
 def cmd_quiz(args: argparse.Namespace) -> int:
     from coursepilot.llm import LLMError, make_provider
-    from coursepilot.quiz import generate_quiz
+    from coursepilot.quiz import TopicNotCovered, generate_quiz
 
     try:
         quiz = generate_quiz(
@@ -81,7 +81,7 @@ def cmd_quiz(args: argparse.Namespace) -> int:
             args.topic,
             args.n,
         )
-    except LLMError as e:
+    except (LLMError, TopicNotCovered) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
     for i, q in enumerate(quiz.questions, start=1):

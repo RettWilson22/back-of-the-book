@@ -2,7 +2,14 @@ import pytest
 from conftest import FakeLLM
 
 from coursepilot.answer import NOT_FOUND_MESSAGE, AnswerEngine, build_prompt, extract_citations
-from coursepilot.quiz import Quiz, QuizDraft, QuizQuestion, generate_quiz, validate_question
+from coursepilot.quiz import (
+    Quiz,
+    QuizDraft,
+    QuizQuestion,
+    TopicNotCovered,
+    generate_quiz,
+    validate_question,
+)
 from coursepilot.retrieval import Mode, Retriever
 
 
@@ -94,3 +101,10 @@ def test_generate_quiz_drops_invalid_questions_and_maps_sources(retriever: Retri
     assert len(quiz.questions) == 2
     assert quiz.dropped == 1
     assert quiz.sources_for(quiz.questions[1]) == [quiz.passages[1]]
+
+
+def test_quiz_on_a_topic_outside_the_materials_never_calls_the_llm(retriever: Retriever):
+    llm = FakeLLM(structured=QuizDraft(questions=[question()]))
+    with pytest.raises(TopicNotCovered, match="don't cover"):
+        generate_quiz(retriever, llm, "mario galaxy", min_similarity=0.3)
+    assert llm.prompts == []
