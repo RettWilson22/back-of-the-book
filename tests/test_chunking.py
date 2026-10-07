@@ -1,7 +1,7 @@
 import pytest
 
-from coursepilot.chunking import Chunk, chunk_pages, split_sentences
-from coursepilot.documents import Page
+from backofthebook.chunking import Chunk, chunk_pages, split_sentences
+from backofthebook.documents import Page
 
 
 def long_page(sentences: int, words_per_sentence: int = 10, page: int = 1) -> Page:

@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING, Protocol
 import numpy as np
 from rank_bm25 import BM25Okapi
 
-from coursepilot.chunking import Chunk
-from coursepilot.index import CorpusIndex, Embedder
+from backofthebook.chunking import Chunk
+from backofthebook.index import CorpusIndex, Embedder
 
 if TYPE_CHECKING:
     from sentence_transformers import CrossEncoder

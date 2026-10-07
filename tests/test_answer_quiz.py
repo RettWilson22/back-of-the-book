@@ -1,8 +1,8 @@
 import pytest
 from conftest import FakeLLM
 
-from coursepilot.answer import NOT_FOUND_MESSAGE, AnswerEngine, build_prompt, extract_citations
-from coursepilot.quiz import (
+from backofthebook.answer import NOT_FOUND_MESSAGE, AnswerEngine, build_prompt, extract_citations
+from backofthebook.quiz import (
     Quiz,
     QuizDraft,
     QuizQuestion,
@@ -10,7 +10,7 @@ from coursepilot.quiz import (
     generate_quiz,
     validate_question,
 )
-from coursepilot.retrieval import Mode, Retriever
+from backofthebook.retrieval import Mode, Retriever
 
 
 def test_extract_citations_splits_valid_and_invalid_and_dedupes():

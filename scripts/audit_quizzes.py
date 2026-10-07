@@ -24,16 +24,16 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from coursepilot.errors import CoursePilotError
-from coursepilot.llm import LLMProvider, make_provider
-from coursepilot.quiz import (
+from backofthebook.errors import BackOfTheBookError
+from backofthebook.llm import LLMProvider, make_provider
+from backofthebook.quiz import (
     DIFFICULTY_GUIDE,
     Difficulty,
     QuizDraft,
     generate_anyquiz,
     validate_question,
 )
-from coursepilot.wiki import WikipediaSource
+from backofthebook.wiki import WikipediaSource
 
 OUT = Path(__file__).resolve().parents[1] / "eval" / "anyquiz"
 TOPICS = [
@@ -61,7 +61,7 @@ def with_retries(action, attempts: int = 6):  # type: ignore[no-untyped-def]
     for attempt in range(attempts):
         try:
             return action()
-        except CoursePilotError as e:
+        except BackOfTheBookError as e:
             if not e.retryable or attempt == attempts - 1:
                 raise
             wait = 20 * (attempt + 1)

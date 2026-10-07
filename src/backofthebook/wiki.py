@@ -16,12 +16,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from coursepilot.chunking import chunk_pages
-from coursepilot.documents import Page
-from coursepilot.errors import CoursePilotError, ErrorCode
+from backofthebook.chunking import chunk_pages
+from backofthebook.documents import Page
+from backofthebook.errors import BackOfTheBookError, ErrorCode
 
 API_URL = "https://en.wikipedia.org/w/api.php"
-USER_AGENT = "CoursePilot/0.1 (https://github.com/RettWilson22/coursepilot)"
+USER_AGENT = "BackOfTheBook/0.1 (https://github.com/RettWilson22/back-of-the-book)"
 # Sections that list references or links rather than explain the topic.
 SKIP_SECTIONS = {
     "notes",
@@ -70,7 +70,7 @@ def _fetch_json(params: dict[str, str]) -> dict[str, Any]:
             data: dict[str, Any] = json.load(response)
             return data
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
-        raise CoursePilotError(
+        raise BackOfTheBookError(
             ErrorCode.SOURCE_UNAVAILABLE,
             "Couldn't reach Wikipedia to look up the topic; try again in a moment.",
             details={"reason": str(e)},
@@ -122,7 +122,7 @@ class WikipediaSource:
             found = self.article(title)
             if found is not None:
                 return found
-        raise CoursePilotError(
+        raise BackOfTheBookError(
             ErrorCode.SOURCE_NOT_FOUND,
             f'Couldn\'t find a Wikipedia article about "{topic}". Check the spelling or try a '
             "more specific topic.",

@@ -3,9 +3,9 @@ import urllib.error
 import pytest
 from conftest import FakeLLM, FakeWikipedia, make_pdf
 
-from coursepilot import cli, wiki
-from coursepilot.errors import CATALOG, CoursePilotError, ErrorCode
-from coursepilot.quiz import (
+from backofthebook import cli, wiki
+from backofthebook.errors import CATALOG, BackOfTheBookError, ErrorCode
+from backofthebook.quiz import (
     DIFFICULTY_GUIDE,
     MAX_QUESTIONS,
     MAX_TOPIC_CHARS,
@@ -17,7 +17,7 @@ from coursepilot.quiz import (
     check_request,
     generate_anyquiz,
 )
-from coursepilot.wiki import Article, WikipediaSource, article_passages
+from backofthebook.wiki import Article, WikipediaSource, article_passages
 
 REAL_FETCH = wiki._fetch_json  # captured before the autouse no_network fixture replaces it
 
@@ -67,7 +67,7 @@ def test_every_error_code_is_in_the_catalog():
 
 
 def test_error_carries_code_message_and_category_properties():
-    error = CoursePilotError(ErrorCode.LLM_RATE_LIMITED, "Slow down.", details={"status": 429})
+    error = BackOfTheBookError(ErrorCode.LLM_RATE_LIMITED, "Slow down.", details={"status": 429})
 
     assert str(error) == "Slow down."
     assert error.retryable
@@ -106,7 +106,7 @@ def test_check_request_normalizes_topic_and_difficulty():
     ],
 )
 def test_check_request_rejects_bad_input(topic, n, difficulty, code):
-    with pytest.raises(CoursePilotError) as raised:
+    with pytest.raises(BackOfTheBookError) as raised:
         check_request(topic, n, difficulty)
     assert raised.value.code is code
 
@@ -114,7 +114,7 @@ def test_check_request_rejects_bad_input(topic, n, difficulty, code):
 def test_invalid_input_never_reaches_wikipedia_or_the_llm():
     fake = FakeWikipedia({})
     llm = llm_for([q("Unused?")])
-    with pytest.raises(CoursePilotError):
+    with pytest.raises(BackOfTheBookError):
         generate_anyquiz(llm, "", 5, "easy", source=WikipediaSource(fake))
     assert fake.calls == [] and llm.prompts == []
 
@@ -162,7 +162,7 @@ def test_find_article_skips_disambiguation_pages():
 
 
 def test_unknown_topic_raises_source_not_found():
-    with pytest.raises(CoursePilotError) as raised:
+    with pytest.raises(BackOfTheBookError) as raised:
         WikipediaSource(FakeWikipedia({})).find_article("asdfghjkl")
     assert raised.value.code is ErrorCode.SOURCE_NOT_FOUND
     assert not raised.value.retryable
@@ -173,7 +173,7 @@ def test_network_failure_raises_source_unavailable(monkeypatch):
         raise urllib.error.URLError("no network")
 
     monkeypatch.setattr(wiki.urllib.request, "urlopen", offline)
-    with pytest.raises(CoursePilotError) as raised:
+    with pytest.raises(BackOfTheBookError) as raised:
         REAL_FETCH({"action": "query"})
     assert raised.value.code is ErrorCode.SOURCE_UNAVAILABLE
     assert raised.value.retryable
@@ -257,14 +257,14 @@ def test_malformed_repeated_and_unsourced_questions_are_dropped(wikipedia):
 
 
 def test_no_usable_questions_raises_no_valid_questions(wikipedia):
-    with pytest.raises(CoursePilotError) as raised:
+    with pytest.raises(BackOfTheBookError) as raised:
         generate_anyquiz(llm_for([]), "galaxy", 5, "easy", source=wikipedia)
     assert raised.value.code is ErrorCode.NO_VALID_QUESTIONS
     assert raised.value.retryable
 
 
 def test_every_answer_failing_the_check_raises_no_valid_questions(wikipedia):
-    with pytest.raises(CoursePilotError, match="source check") as raised:
+    with pytest.raises(BackOfTheBookError, match="source check") as raised:
         generate_anyquiz(
             llm_for([q("A?"), q("B?")], answers=[-1, 3]), "galaxy", 2, "hard", source=wikipedia
         )
@@ -280,17 +280,17 @@ def test_cli_anyquiz_bad_difficulty_exits_with_input_error(capsys):
 
 
 def test_cli_anyquiz_unknown_topic_exits_with_no_source(monkeypatch, capsys):
-    monkeypatch.setattr("coursepilot.wiki._fetch_json", FakeWikipedia({}))
-    monkeypatch.setattr("coursepilot.llm.make_provider", lambda name=None: FakeLLM())
+    monkeypatch.setattr("backofthebook.wiki._fetch_json", FakeWikipedia({}))
+    monkeypatch.setattr("backofthebook.llm.make_provider", lambda name=None: FakeLLM())
     assert cli.main(["anyquiz", "asdfghjkl"]) == 3
     assert "Error [SOURCE_NOT_FOUND]" in capsys.readouterr().err
 
 
 def test_cli_anyquiz_without_llm_exits_with_configuration_error(monkeypatch, capsys):
-    for var in ("GROQ_API_KEY", "ANTHROPIC_API_KEY", "COURSEPILOT_LLM"):
+    for var in ("GROQ_API_KEY", "ANTHROPIC_API_KEY", "BACKOFTHEBOOK_LLM"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(
-        "coursepilot.wiki._fetch_json", FakeWikipedia({"Chess": "Chess is a board game."})
+        "backofthebook.wiki._fetch_json", FakeWikipedia({"Chess": "Chess is a board game."})
     )
     assert cli.main(["anyquiz", "chess"]) == 4
     assert "Error [NO_LLM_CONFIGURED]" in capsys.readouterr().err
@@ -298,7 +298,7 @@ def test_cli_anyquiz_without_llm_exits_with_configuration_error(monkeypatch, cap
 
 def test_cli_anyquiz_prints_a_sourced_quiz(monkeypatch, capsys):
     monkeypatch.setattr(
-        "coursepilot.wiki._fetch_json", FakeWikipedia({"Super Mario Galaxy": GALAXY})
+        "backofthebook.wiki._fetch_json", FakeWikipedia({"Super Mario Galaxy": GALAXY})
     )
     llm = llm_for(
         [
@@ -309,7 +309,7 @@ def test_cli_anyquiz_prints_a_sourced_quiz(monkeypatch, capsys):
             )
         ]
     )
-    monkeypatch.setattr("coursepilot.llm.make_provider", lambda name=None: llm)
+    monkeypatch.setattr("backofthebook.llm.make_provider", lambda name=None: llm)
 
     assert cli.main(["anyquiz", "galaxy", "-n", "1", "-d", "easy"]) == 0
     out = capsys.readouterr().out
@@ -325,9 +325,9 @@ def test_cli_course_quiz_off_topic_exits_with_not_covered(tmp_path, monkeypatch,
         def __init__(self, model_name: str = "") -> None:
             self.model_name = "fake-embedder"
 
-    monkeypatch.setattr("coursepilot.index.SentenceTransformerEmbedder", Embedder)
-    monkeypatch.setattr("coursepilot.retrieval.CrossEncoderReranker", FakeReranker)
-    monkeypatch.setattr("coursepilot.llm.make_provider", lambda name=None: FakeLLM())
+    monkeypatch.setattr("backofthebook.index.SentenceTransformerEmbedder", Embedder)
+    monkeypatch.setattr("backofthebook.retrieval.CrossEncoderReranker", FakeReranker)
+    monkeypatch.setattr("backofthebook.llm.make_provider", lambda name=None: FakeLLM())
     docs = tmp_path / "docs"
     docs.mkdir()
     make_pdf(docs / "stats.pdf", ["The variance measures spread around the mean value."])

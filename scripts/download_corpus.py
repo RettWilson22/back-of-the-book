@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from coursepilot.sample import ChecksumError, download_sample
+from backofthebook.sample import ChecksumError, download_sample
 
 DEST = Path(__file__).resolve().parents[1] / "data" / "corpus"
 

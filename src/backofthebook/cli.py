@@ -1,4 +1,4 @@
-"""Command-line interface: `coursepilot ingest | ask | quiz | eval`."""
+"""Command-line interface: `backofthebook ingest | ask | quiz | eval`."""
 
 from __future__ import annotations
 
@@ -7,17 +7,17 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from coursepilot.errors import CoursePilotError
-from coursepilot.index import USER_INDEX, default_index_dir
+from backofthebook.errors import BackOfTheBookError
+from backofthebook.index import USER_INDEX, default_index_dir
 
 if TYPE_CHECKING:
-    from coursepilot.quiz import Quiz
-    from coursepilot.retrieval import Retriever
+    from backofthebook.quiz import Quiz
+    from backofthebook.retrieval import Retriever
 
 
 def _retriever(index_dir: Path, rerank: bool = True) -> Retriever:
-    from coursepilot.index import CorpusIndex, SentenceTransformerEmbedder
-    from coursepilot.retrieval import CrossEncoderReranker, Retriever
+    from backofthebook.index import CorpusIndex, SentenceTransformerEmbedder
+    from backofthebook.retrieval import CrossEncoderReranker, Retriever
 
     index = CorpusIndex.load(index_dir)
     return Retriever(
@@ -28,9 +28,9 @@ def _retriever(index_dir: Path, rerank: bool = True) -> Retriever:
 
 
 def cmd_ingest(args: argparse.Namespace) -> int:
-    from coursepilot.chunking import chunk_pages
-    from coursepilot.documents import find_documents, load_document
-    from coursepilot.index import CorpusIndex, SentenceTransformerEmbedder
+    from backofthebook.chunking import chunk_pages
+    from backofthebook.documents import find_documents, load_document
+    from backofthebook.index import CorpusIndex, SentenceTransformerEmbedder
 
     files = find_documents([Path(p) for p in args.paths])
     if not files:
@@ -51,8 +51,8 @@ def cmd_ingest(args: argparse.Namespace) -> int:
 
 
 def cmd_ask(args: argparse.Namespace) -> int:
-    from coursepilot.answer import AnswerEngine
-    from coursepilot.llm import make_provider
+    from backofthebook.answer import AnswerEngine
+    from backofthebook.llm import make_provider
 
     engine = AnswerEngine(
         _retriever(args.index or default_index_dir()), make_provider(args.llm), k=args.k
@@ -86,8 +86,8 @@ def print_quiz(quiz: Quiz) -> None:
 
 
 def cmd_quiz(args: argparse.Namespace) -> int:
-    from coursepilot.llm import make_provider
-    from coursepilot.quiz import generate_quiz
+    from backofthebook.llm import make_provider
+    from backofthebook.quiz import generate_quiz
 
     retriever = _retriever(args.index or default_index_dir())
     print_quiz(
@@ -97,8 +97,8 @@ def cmd_quiz(args: argparse.Namespace) -> int:
 
 
 def cmd_anyquiz(args: argparse.Namespace) -> int:
-    from coursepilot.llm import make_provider
-    from coursepilot.quiz import generate_anyquiz
+    from backofthebook.llm import make_provider
+    from backofthebook.quiz import generate_anyquiz
 
     quiz = generate_anyquiz(
         make_provider(args.llm), args.topic, args.n, args.difficulty, check=not args.no_check
@@ -108,8 +108,13 @@ def cmd_anyquiz(args: argparse.Namespace) -> int:
 
 
 def cmd_eval(args: argparse.Namespace) -> int:
-    from coursepilot.evaluation import evaluate_mode, evaluate_scope, format_report, load_questions
-    from coursepilot.retrieval import Mode
+    from backofthebook.evaluation import (
+        evaluate_mode,
+        evaluate_scope,
+        format_report,
+        load_questions,
+    )
+    from backofthebook.retrieval import Mode
 
     questions = load_questions(args.questions)
     retriever = _retriever(args.index or default_index_dir())
@@ -135,11 +140,11 @@ def cmd_eval(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="coursepilot", description=__doc__)
+    parser = argparse.ArgumentParser(prog="backofthebook", description=__doc__)
     parser.add_argument(
         "--index",
         type=Path,
-        help="index directory (default: .coursepilot/index if it exists, else the bundled "
+        help="index directory (default: .backofthebook/index if it exists, else the bundled "
         "sample index in data/index)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -185,7 +190,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return int(args.func(args))
-    except CoursePilotError as e:
+    except BackOfTheBookError as e:
         retry = " (you can try again)" if e.retryable else ""
         print(f"\nError [{e.code}]: {e.message}{retry}", file=sys.stderr)
         return e.exit_code

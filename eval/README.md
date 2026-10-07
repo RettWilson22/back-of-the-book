@@ -4,7 +4,7 @@
 |---|---|---|
 | `questions.jsonl` | 75 answerable, 20 off-topic | Main set. Written and committed before any retrieval run. |
 | `heldout.jsonl` | 19 answerable, 15 off-topic | Written after the first run, to check the off-topic threshold on questions it wasn't chosen from. |
-| `results.md`, `results-heldout.md` | | Output of `coursepilot eval`. |
+| `results.md`, `results-heldout.md` | | Output of `backofthebook eval`. |
 
 ## How the questions were written
 

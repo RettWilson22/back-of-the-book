@@ -4,8 +4,8 @@ from pathlib import Path
 import pytest
 from conftest import FakeEmbedder, FakeReranker, make_pdf
 
-from coursepilot import cli
-from coursepilot.evaluation import (
+from backofthebook import cli
+from backofthebook.evaluation import (
     EvalQuestion,
     evaluate_mode,
     evaluate_scope,
@@ -13,7 +13,7 @@ from coursepilot.evaluation import (
     format_report,
     load_questions,
 )
-from coursepilot.retrieval import Mode, Retriever
+from backofthebook.retrieval import Mode, Retriever
 
 
 def write_questions(path: Path, rows: list[dict]) -> Path:
@@ -75,9 +75,9 @@ def fake_models(monkeypatch: pytest.MonkeyPatch) -> None:
         def __init__(self, model_name: str = "fake-embedder") -> None:
             self.model_name = "fake-embedder"
 
-    monkeypatch.setattr("coursepilot.index.SentenceTransformerEmbedder", Embedder)
-    monkeypatch.setattr("coursepilot.retrieval.CrossEncoderReranker", FakeReranker)
-    for var in ("GROQ_API_KEY", "ANTHROPIC_API_KEY", "COURSEPILOT_LLM"):
+    monkeypatch.setattr("backofthebook.index.SentenceTransformerEmbedder", Embedder)
+    monkeypatch.setattr("backofthebook.retrieval.CrossEncoderReranker", FakeReranker)
+    for var in ("GROQ_API_KEY", "ANTHROPIC_API_KEY", "BACKOFTHEBOOK_LLM"):
         monkeypatch.delenv(var, raising=False)
 
 

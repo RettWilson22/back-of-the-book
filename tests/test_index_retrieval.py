@@ -4,9 +4,9 @@ import numpy as np
 import pytest
 from conftest import FakeEmbedder, FakeReranker
 
-from coursepilot.chunking import Chunk
-from coursepilot.index import CorpusIndex, IndexBuildError
-from coursepilot.retrieval import Mode, Retriever, reciprocal_rank_fusion, tokenize
+from backofthebook.chunking import Chunk
+from backofthebook.index import CorpusIndex, IndexBuildError
+from backofthebook.retrieval import Mode, Retriever, reciprocal_rank_fusion, tokenize
 
 
 def test_index_round_trips_through_disk(index: CorpusIndex, tmp_path: Path):
@@ -19,7 +19,7 @@ def test_index_round_trips_through_disk(index: CorpusIndex, tmp_path: Path):
 
 
 def test_loading_missing_index_explains_what_to_do(tmp_path: Path):
-    with pytest.raises(IndexBuildError, match="coursepilot ingest"):
+    with pytest.raises(IndexBuildError, match="backofthebook ingest"):
         CorpusIndex.load(tmp_path)
 
 
@@ -89,7 +89,7 @@ def test_top_similarity_is_higher_for_on_topic_questions(retriever: Retriever):
 
 
 def test_default_index_prefers_the_users_own_index(tmp_path: Path, index: CorpusIndex):
-    from coursepilot.index import BUNDLED_INDEX, USER_INDEX, default_index_dir
+    from backofthebook.index import BUNDLED_INDEX, USER_INDEX, default_index_dir
 
     assert default_index_dir(tmp_path) == tmp_path / BUNDLED_INDEX
     index.save(tmp_path / USER_INDEX)

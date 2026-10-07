@@ -1,7 +1,7 @@
 .venv/
 __pycache__/
 *.pyc
-.coursepilot/
+.backofthebook/
 data/corpus/*.pdf
 .pytest_cache/
 .mypy_cache/

@@ -1,6 +1,6 @@
 """Error codes shared by the library, the CLI, and the web app.
 
-Every failure a user can hit is a `CoursePilotError` with:
+Every failure a user can hit is a `BackOfTheBookError` with:
 - `code`: a stable name (`LLM_RATE_LIMITED`) that callers can branch on and users can report;
 - `message`: a sentence that is safe to show to a user;
 - `retryable`: whether trying the same request again could succeed;
@@ -69,7 +69,7 @@ CATALOG: dict[ErrorCode, ErrorInfo] = {
 }
 
 
-class CoursePilotError(Exception):
+class BackOfTheBookError(Exception):
     def __init__(
         self, code: ErrorCode, message: str, *, details: dict[str, Any] | None = None
     ) -> None:

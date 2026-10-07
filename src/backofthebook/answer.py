@@ -11,8 +11,8 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
-from coursepilot.llm import LLMProvider
-from coursepilot.retrieval import DEFAULT_MIN_SIMILARITY, Hit, Mode, Retriever
+from backofthebook.llm import LLMProvider
+from backofthebook.retrieval import DEFAULT_MIN_SIMILARITY, Hit, Mode, Retriever
 
 SYSTEM_PROMPT = """You are a teaching assistant answering a student's question using ONLY the \
 course-material excerpts provided.
