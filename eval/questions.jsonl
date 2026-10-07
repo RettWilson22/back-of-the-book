@@ -1,0 +1,95 @@
+{"id": "q001", "question": "Before modern technology, which kinds of specialists traditionally handled data collection versus data management versus data analysis?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 20}], "topic": "1.1"}
+{"id": "q002", "question": "How did a big retailer use sales data from one hurricane to plan its inventory for the next storm?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 23}], "topic": "1.2"}
+{"id": "q003", "question": "What Latin word does the term data come from, and what does that word mean?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 27}], "topic": "1.3"}
+{"id": "q004", "question": "In a comma-separated values file, how are the attribute values of each record stored?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 32}], "topic": "1.3"}
+{"id": "q005", "question": "Why are cloud-based spreadsheets like Google Sheets handy for team projects?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 39}], "topic": "1.4"}
+{"id": "q006", "question": "How do I set up Google Colab so I can run a Jupyter notebook from my Google Drive?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 41}], "topic": "1.5"}
+{"id": "q007", "question": "How can I select a column or a row of a pandas DataFrame by its integer position?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 51}], "topic": "1.5"}
+{"id": "q008", "question": "What is transactional data, and what kinds of activity does it record?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 69}], "topic": "2.1"}
+{"id": "q009", "question": "Why did the 1936 Literary Digest poll get the presidential election prediction wrong?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 72}], "topic": "2.2"}
+{"id": "q010", "question": "Which web scraping technique uses a query language to navigate the elements of an HTML document?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 77}], "topic": "2.3"}
+{"id": "q011", "question": "In a regular expression, what is the difference between the asterisk and the question mark metacharacters?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 81}], "topic": "2.3"}
+{"id": "q012", "question": "What is the difference between data that is missing completely at random and data that is missing at random?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 87}], "topic": "2.4"}
+{"id": "q013", "question": "Why would a data scientist apply a log or square root transformation to a variable?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 92}], "topic": "2.4"}
+{"id": "q014", "question": "What kinds of storage solutions are commonly used for big data?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 99}], "topic": "2.5"}
+{"id": "q015", "question": "How do hospitals benefit from using database management techniques on patient records?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 101}], "topic": "2.5"}
+{"id": "q016", "question": "What is the difference between population data and sample data?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 115}], "topic": "3.1"}
+{"id": "q017", "question": "How do you compute a trimmed mean, and why is it useful when a dataset has outliers?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 117}], "topic": "3.1"}
+{"id": "q018", "question": "Why is reporting only the mean not enough to describe a dataset, and how is the range calculated?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 121}], "topic": "3.2"}
+{"id": "q019", "question": "Which percentiles do the first, second, and third quartiles correspond to?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 126}], "topic": "3.3"}
+{"id": "q020", "question": "What do the terms outcome, sample space, and event mean in probability?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 130}], "topic": "3.4"}
+{"id": "q021", "question": "Is drawing an ace and then a king without putting the first card back an example of independent events?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 133}], "topic": "3.4"}
+{"id": "q022", "question": "What distinguishes a continuous random variable from a discrete one?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 138}], "topic": "3.5"}
+{"id": "q023", "question": "Which distribution would a traffic engineer use to find the chance that a certain number of cars arrive in a fixed time window?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 143}], "topic": "3.5"}
+{"id": "q024", "question": "Why is the sample mean used as the point estimate for the population mean?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 157}], "topic": "4.1"}
+{"id": "q025", "question": "What requirements must be met before building a confidence interval for a population proportion?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 165}], "topic": "4.1"}
+{"id": "q026", "question": "What are the steps involved in carrying out a hypothesis test?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 176}], "topic": "4.2"}
+{"id": "q027", "question": "How do I decide whether to reject the null hypothesis by comparing the p-value to the significance level?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 186}], "topic": "4.2"}
+{"id": "q028", "question": "How does regression analysis go further than correlation analysis?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 198}], "topic": "4.3"}
+{"id": "q029", "question": "When is it appropriate to calculate a regression line between two variables?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 204}], "topic": "4.3"}
+{"id": "q030", "question": "What are the null and alternative hypotheses and the requirements for a one-way ANOVA?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 213}], "topic": "4.4"}
+{"id": "q031", "question": "What real-world problems is time series analysis used for?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 224}], "topic": "5.1"}
+{"id": "q032", "question": "What are the weaknesses of forecasting a time series with a simple linear regression?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 227}], "topic": "5.1"}
+{"id": "q033", "question": "What is the trend curve of a time series, and what is meant by the level?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 233}], "topic": "5.2"}
+{"id": "q034", "question": "How is a simple moving average computed when isolating the trend of a time series?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 238}], "topic": "5.3"}
+{"id": "q035", "question": "What is a seasonally adjusted time series?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 250}], "topic": "5.3"}
+{"id": "q036", "question": "Why can a model that fits historical data very closely still forecast poorly, and how do you guard against that?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 264}], "topic": "5.4"}
+{"id": "q037", "question": "What is the difference between labeled and unlabeled data in machine learning?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 277}], "topic": "6.1"}
+{"id": "q038", "question": "How are precision, recall, and the F1 score computed for a medical test from its true and false positives?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 280}], "topic": "6.1"}
+{"id": "q039", "question": "Why does logistic regression use a sigmoid function instead of a straight line?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 285}], "topic": "6.2"}
+{"id": "q040", "question": "Why might k-means clustering give different clusters each time it is run?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 293}], "topic": "6.2"}
+{"id": "q041", "question": "How can bootstrapping be used to estimate the uncertainty of regression coefficients?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 304}], "topic": "6.3"}
+{"id": "q042", "question": "What assumptions about the input and output variables are needed to use multiple regression?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 309}], "topic": "6.3"}
+{"id": "q043", "question": "What makes decision trees more flexible than linear models?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 317}], "topic": "6.4"}
+{"id": "q044", "question": "What is meant by the depth of a decision tree?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 321}], "topic": "6.4"}
+{"id": "q045", "question": "Why might a random forest be preferred over a single decision tree?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 327}], "topic": "6.5"}
+{"id": "q046", "question": "How do you use Bayes' theorem to find which supplier a defective part most likely came from?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 331}], "topic": "6.5"}
+{"id": "q047", "question": "What are the input, output, and hidden layers of a neural network?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 343}], "topic": "7.1"}
+{"id": "q048", "question": "What does the softmax function do to a vector of values?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 346}], "topic": "7.1"}
+{"id": "q049", "question": "What is the difference between static and dynamic backpropagation?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 352}], "topic": "7.2"}
+{"id": "q050", "question": "Which optimizer and loss function are used when compiling the Keras handwritten digit classifier?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 357}], "topic": "7.2"}
+{"id": "q051", "question": "What makes a neural network deep in deep learning?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 364}], "topic": "7.3"}
+{"id": "q052", "question": "In a convolutional neural network, what are feature maps?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 368}], "topic": "7.4"}
+{"id": "q053", "question": "What kinds of tasks can natural language processing models automate?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 370}], "topic": "7.5"}
+{"id": "q054", "question": "What AI tools can help programmers write and complete code?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 374}], "topic": "7.5"}
+{"id": "q055", "question": "What is data sovereignty?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 389}], "topic": "8.1"}
+{"id": "q056", "question": "What does the informed consent process involve when collecting data from study participants?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 393}], "topic": "8.1"}
+{"id": "q057", "question": "How can a dataset that represents only one demographic lead to unfair or inaccurate models?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 399}], "topic": "8.2"}
+{"id": "q058", "question": "How can a company's data analysis cause harm when sensitive data is misused or breached?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 401}], "topic": "8.2"}
+{"id": "q059", "question": "Why should data scientists properly attribute and cite their data sources when reporting results?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 406}], "topic": "8.3"}
+{"id": "q060", "question": "How can the way a chart's vertical axis is scaled make small differences hard to see?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 409}], "topic": "8.3"}
+{"id": "q061", "question": "What are the steps for drawing a horizontal boxplot?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 423}], "topic": "9.1"}
+{"id": "q062", "question": "What is a histogram, and what type of data is it best suited for?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 429}], "topic": "9.1"}
+{"id": "q063", "question": "How is a time series graph constructed, and which axis represents time?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 437}], "topic": "9.2"}
+{"id": "q064", "question": "What conditions define a binomial experiment?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 442}], "topic": "9.3"}
+{"id": "q065", "question": "How does the probability of success affect the skew of a binomial distribution graph?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 445}], "topic": "9.3"}
+{"id": "q066", "question": "What is GeoPandas, and how is a GeoDataFrame different from a regular DataFrame?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 450}], "topic": "9.4"}
+{"id": "q067", "question": "Which Python function can I use to draw a heatmap, for example of airline passengers by month and year?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 452}], "topic": "9.4"}
+{"id": "q068", "question": "On a scatterplot, which variable goes on the x-axis: the explanatory or the response variable?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 456}], "topic": "9.5"}
+{"id": "q069", "question": "What is a correlation heatmap, and how do you compute a correlation matrix in pandas?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 461}], "topic": "9.5"}
+{"id": "q070", "question": "How should a technical report be pitched differently for technicians than for experts?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 473}], "topic": "10.1"}
+{"id": "q071", "question": "What is neurodiversity, and how should report writers account for it?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 475}], "topic": "10.1"}
+{"id": "q072", "question": "Before analyzing data for a client, why should you list the project's constraints and assumptions?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 480}], "topic": "10.2"}
+{"id": "q073", "question": "How can limiting max_depth reduce overfitting in a decision tree classifier?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 486}], "topic": "10.2"}
+{"id": "q074", "question": "What should the executive summary of a data science project include?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 495}], "topic": "10.3"}
+{"id": "q075", "question": "Which predictors mattered most in the example report on detecting diabetes with a decision tree?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 497}], "topic": "10.3"}
+{"id": "off01", "question": "What is the capital of Australia?", "answerable": false, "topic": "off-topic"}
+{"id": "off02", "question": "Who won the 2018 FIFA World Cup?", "answerable": false, "topic": "off-topic"}
+{"id": "off03", "question": "How do I bake sourdough bread at home?", "answerable": false, "topic": "off-topic"}
+{"id": "off04", "question": "In what year did the Western Roman Empire fall?", "answerable": false, "topic": "off-topic"}
+{"id": "off05", "question": "How many moons does Jupiter have?", "answerable": false, "topic": "off-topic"}
+{"id": "off06", "question": "What is a good workout routine for building muscle?", "answerable": false, "topic": "off-topic"}
+{"id": "off07", "question": "Who wrote Pride and Prejudice?", "answerable": false, "topic": "off-topic"}
+{"id": "off08", "question": "How do I change a flat tire on my car?", "answerable": false, "topic": "off-topic"}
+{"id": "off09", "question": "What causes the northern lights?", "answerable": false, "topic": "off-topic"}
+{"id": "off10", "question": "How do I renew my passport?", "answerable": false, "topic": "off-topic"}
+{"id": "off11", "question": "What is the chemical formula of table salt?", "answerable": false, "topic": "off-topic"}
+{"id": "off12", "question": "Which planet is closest to the sun?", "answerable": false, "topic": "off-topic"}
+{"id": "off13", "question": "How do I configure autoscaling for pods in Kubernetes?", "answerable": false, "topic": "near-domain"}
+{"id": "off14", "question": "What is the Black-Scholes formula for pricing stock options?", "answerable": false, "topic": "near-domain"}
+{"id": "off15", "question": "How do I write a recursive Fibonacci function in Rust?", "answerable": false, "topic": "near-domain"}
+{"id": "off16", "question": "What is the time complexity of Dijkstra's algorithm with a binary heap?", "answerable": false, "topic": "near-domain"}
+{"id": "off17", "question": "How does the TCP three-way handshake work?", "answerable": false, "topic": "near-domain"}
+{"id": "off18", "question": "What happens in the Krebs cycle during cellular respiration?", "answerable": false, "topic": "near-domain"}
+{"id": "off19", "question": "How do I set up a React app with Vite?", "answerable": false, "topic": "near-domain"}
+{"id": "off20", "question": "What are the SOLID principles of object-oriented design?", "answerable": false, "topic": "near-domain"}
