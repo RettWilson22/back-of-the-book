@@ -11,7 +11,8 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Iterator
-from typing import Any, Protocol, TypeVar
+from dataclasses import dataclass
+from typing import Any, Literal, Protocol, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
@@ -30,10 +31,23 @@ class LLMError(BackOfTheBookError):
     """A provider failure, with an error code and a message that is safe to show to the user."""
 
 
+Message = dict[str, str]  # {"role": "user" | "assistant", "content": "..."}
+
+
+@dataclass(frozen=True)
+class StreamEvent:
+    """A piece of a streamed reply: the model's reasoning summary, or the answer itself."""
+
+    kind: Literal["thinking", "text"]
+    text: str
+
+
 class LLMProvider(Protocol):
     name: str
 
-    def stream_text(self, system: str, user: str) -> Iterator[str]: ...
+    def chat_stream(self, system: str, messages: list[Message]) -> Iterator[StreamEvent]:
+        """Stream a reply to a conversation (oldest message first, ending with the user)."""
+        ...
 
     def generate(self, system: str, user: str, schema: type[T]) -> T: ...
 
@@ -107,7 +121,7 @@ class ClaudeProvider:
         self.model = model
         self.effort = effort
 
-    def stream_text(self, system: str, user: str) -> Iterator[str]:
+    def chat_stream(self, system: str, messages: list[Message]) -> Iterator[StreamEvent]:
         import anthropic
 
         try:
@@ -115,12 +129,20 @@ class ClaudeProvider:
                 model=self.model,
                 max_tokens=64000,
                 system=system,
-                messages=[{"role": "user", "content": user}],
+                messages=messages,
+                # Opus 5.5 always thinks; "summarized" returns a readable summary to show users.
+                thinking={"type": "adaptive", "display": "summarized"},
                 output_config={"effort": self.effort},
                 betas=[FALLBACK_BETA],
                 fallbacks="default",
             ) as stream:
-                yield from stream.text_stream
+                for event in stream:
+                    if event.type != "content_block_delta":
+                        continue
+                    if event.delta.type == "thinking_delta" and event.delta.thinking:
+                        yield StreamEvent("thinking", event.delta.thinking)
+                    elif event.delta.type == "text_delta" and event.delta.text:
+                        yield StreamEvent("text", event.delta.text)
                 final = stream.get_final_message()
         except anthropic.APIError as e:
             raise _claude_error(e) from e
@@ -172,20 +194,31 @@ class GroqProvider:
         self.client = client
         self.model = model
 
-    def stream_text(self, system: str, user: str) -> Iterator[str]:
+    @property
+    def _reasons(self) -> bool:
+        """gpt-oss models on Groq can return their reasoning alongside the answer."""
+        return self.model.startswith("openai/gpt-oss")
+
+    def chat_stream(self, system: str, messages: list[Message]) -> Iterator[StreamEvent]:
         import groq
 
+        extra: dict[str, Any] = (
+            {"include_reasoning": True, "reasoning_effort": "medium"} if self._reasons else {}
+        )
         try:
             stream = self.client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-                temperature=0.2,
+                messages=[{"role": "system", "content": system}, *messages],
+                temperature=0.3,
                 stream=True,
+                **extra,
             )
             for chunk in stream:
-                delta = chunk.choices[0].delta.content
-                if delta:
-                    yield delta
+                delta = chunk.choices[0].delta
+                if getattr(delta, "reasoning", None):
+                    yield StreamEvent("thinking", delta.reasoning)
+                if delta.content:
+                    yield StreamEvent("text", delta.content)
         except groq.APIError as e:
             raise _groq_error(e) from e
 
@@ -234,18 +267,20 @@ class ExtractiveProvider:
 
     name = "extractive"
 
-    def stream_text(self, system: str, user: str) -> Iterator[str]:
+    def chat_stream(self, system: str, messages: list[Message]) -> Iterator[StreamEvent]:
         # Parses the prompt format produced by answer.build_prompt: "[Sn] (citation)\ntext".
+        user = messages[-1]["content"]
         sources = re.findall(
             r"^\[S(\d+)\] \(([^)]*)\)\n(.*?)(?=^\[S\d+\]|^Student question:|\Z)", user, re.M | re.S
         )
         if not sources:
-            yield "No matching passages were found in your course materials."
+            yield StreamEvent("text", "No matching passages were found in your course materials.")
             return
-        yield "No LLM is configured, so here are the most relevant passages:\n\n"
+        yield StreamEvent("text", "No AI is set up, so here are the most relevant passages:\n\n")
         for number, _citation, text in sources[:3]:
             snippet = " ".join(text.split())
-            yield f"- {snippet[:400]}{'…' if len(snippet) > 400 else ''} [S{number}]\n"
+            more = "…" if len(snippet) > 400 else ""
+            yield StreamEvent("text", f"- {snippet[:400]}{more} [S{number}]\n")
 
     def generate(self, system: str, user: str, schema: type[T]) -> T:
         raise LLMError(

@@ -6,6 +6,7 @@ They share one interface so the evaluation can compare them on identical questio
 from __future__ import annotations
 
 import re
+from collections.abc import Collection
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
@@ -98,33 +99,56 @@ class Retriever:
         self.candidates = candidates
         self._bm25 = BM25Okapi([tokenize(c.text) or ["<empty>"] for c in index.chunks])
 
-    def _bm25_ranking(self, query: str, n: int) -> list[tuple[int, float]]:
+    def _allowed(self, sources: Collection[str] | None) -> np.ndarray | None:
+        """Boolean mask of chunks from `sources`, or None to allow every chunk."""
+        if not sources:
+            return None
+        wanted = set(sources)
+        return np.array([c.source in wanted for c in self.index.chunks])
+
+    @staticmethod
+    def _top(scores: np.ndarray, n: int, allowed: np.ndarray | None) -> list[tuple[int, float]]:
+        order = np.argsort(-scores, kind="stable")
+        if allowed is not None:
+            order = order[allowed[order]]
+        return [(int(i), float(scores[i])) for i in order[:n]]
+
+    def _bm25_ranking(
+        self, query: str, n: int, allowed: np.ndarray | None = None
+    ) -> list[tuple[int, float]]:
         scores = self._bm25.get_scores(tokenize(query))
-        order = np.argsort(-scores, kind="stable")[:n]
-        return [(int(i), float(scores[i])) for i in order if scores[i] > 0]
+        return [(i, s) for i, s in self._top(scores, n, allowed) if s > 0]
 
-    def _dense_ranking(self, query: str, n: int) -> list[tuple[int, float]]:
+    def _dense_ranking(
+        self, query: str, n: int, allowed: np.ndarray | None = None
+    ) -> list[tuple[int, float]]:
         query_vec = self.embedder.encode([query])[0]
-        scores = self.index.embeddings @ query_vec
-        order = np.argsort(-scores, kind="stable")[:n]
-        return [(int(i), float(scores[i])) for i in order]
+        return self._top(self.index.embeddings @ query_vec, n, allowed)
 
-    def top_similarity(self, query: str) -> float:
+    def top_similarity(self, query: str, sources: Collection[str] | None = None) -> float:
         """Cosine similarity of the best-matching chunk; used to detect off-topic questions."""
-        ranking = self._dense_ranking(query, 1)
+        ranking = self._dense_ranking(query, 1, self._allowed(sources))
         return ranking[0][1] if ranking else 0.0
 
-    def search(self, query: str, k: int = 5, mode: Mode = Mode.HYBRID_RERANK) -> list[Hit]:
+    def search(
+        self,
+        query: str,
+        k: int = 5,
+        mode: Mode = Mode.HYBRID_RERANK,
+        sources: Collection[str] | None = None,
+    ) -> list[Hit]:
+        """Top-k chunks for `query`, optionally only from the given source files."""
         chunks = self.index.chunks
+        allowed = self._allowed(sources)
         if mode is Mode.BM25:
-            return [Hit(chunks[i], s) for i, s in self._bm25_ranking(query, k)]
+            return [Hit(chunks[i], s) for i, s in self._bm25_ranking(query, k, allowed)]
         if mode is Mode.DENSE:
-            return [Hit(chunks[i], s) for i, s in self._dense_ranking(query, k)]
+            return [Hit(chunks[i], s) for i, s in self._dense_ranking(query, k, allowed)]
 
         fused = reciprocal_rank_fusion(
             [
-                [chunks[i].id for i, _ in self._bm25_ranking(query, self.candidates)],
-                [chunks[i].id for i, _ in self._dense_ranking(query, self.candidates)],
+                [chunks[i].id for i, _ in self._bm25_ranking(query, self.candidates, allowed)],
+                [chunks[i].id for i, _ in self._dense_ranking(query, self.candidates, allowed)],
             ]
         )
         if mode is Mode.HYBRID or self.reranker is None:

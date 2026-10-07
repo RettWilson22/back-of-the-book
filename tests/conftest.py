@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from backofthebook.chunking import Chunk, chunk_pages
 from backofthebook.documents import Page
 from backofthebook.index import CorpusIndex
+from backofthebook.llm import Message, StreamEvent
 from backofthebook.retrieval import Retriever, tokenize
 
 
@@ -44,16 +45,21 @@ class FakeReranker:
 class FakeLLM:
     name = "fake"
 
-    def __init__(self, reply: str = "", structured: Any = None) -> None:
+    def __init__(self, reply: str = "", structured: Any = None, thinking: str = "") -> None:
         self.reply = reply
         self.structured = structured
-        self.prompts: list[tuple[str, str]] = []
+        self.thinking = thinking
+        self.prompts: list[tuple[str, str]] = []  # (system, latest user message)
+        self.conversations: list[list[Message]] = []
 
-    def stream_text(self, system: str, user: str) -> Iterator[str]:
-        self.prompts.append((system, user))
+    def chat_stream(self, system: str, messages: list[Message]) -> Iterator[StreamEvent]:
+        self.prompts.append((system, messages[-1]["content"]))
+        self.conversations.append(messages)
+        if self.thinking:
+            yield StreamEvent("thinking", self.thinking)
         words = self.reply.split(" ")
         for i, word in enumerate(words):
-            yield word if i == len(words) - 1 else word + " "
+            yield StreamEvent("text", word if i == len(words) - 1 else word + " ")
 
     def generate(self, system: str, user: str, schema: type[BaseModel]) -> Any:
         """Return `structured`, or `structured[schema]` when given one response per schema."""

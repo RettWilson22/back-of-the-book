@@ -5,6 +5,7 @@ Run with:  streamlit run app/streamlit_app.py
 
 from __future__ import annotations
 
+import html
 import logging
 import os
 import tempfile
@@ -15,7 +16,7 @@ from pathlib import Path
 import streamlit as st
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
-from backofthebook.answer import AnswerEngine
+from backofthebook.answer import Answer, AnswerEngine, Turn
 from backofthebook.chunking import chunk_pages
 from backofthebook.documents import SUPPORTED_SUFFIXES, load_document
 from backofthebook.errors import BackOfTheBookError, ErrorCode
@@ -83,6 +84,19 @@ header[data-testid="stHeader"], footer, [data-testid="stToolbar"] { display: non
 .bb-right { color: #2e6b30; background: #e6f2e4; border-color: #9cc49a; }
 .bb-wrong { color: #8c2a24; background: #f7e4e1; border-color: #d9a29b; }
 
+/* Chat that reads like a modern assistant: your messages in bubbles on the right,
+   replies as plain text on the left. */
+[data-testid="stChatMessage"] { background: transparent; padding: 0.35rem 0; gap: 0.6rem; }
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
+  flex-direction: row-reverse; justify-content: flex-start; }
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"])
+  [data-testid="stChatMessageContent"] {
+  background: #e4ddcd; border-radius: 18px; padding: 0.55rem 1rem; max-width: 75%;
+  flex: 0 1 auto; margin: 0 !important; }
+[data-testid="stChatMessageAvatarUser"] { display: none; }
+[data-testid="stChatMessageAvatarAssistant"] { background: #22313f; color: #c9a24a; }
+.bb-thought { color: #6b6458; font-size: 0.88rem; white-space: pre-wrap; }
+
 .bb-footer { margin-top: 3rem; padding: 1rem 0; border-top: 1px solid #cfc6b4;
   font-size: 0.85rem; color: #6b6458; }
 </style>
@@ -100,8 +114,7 @@ MASTHEAD = """
     </svg>
     <div>
       <div class="bb-brand">Back of <em>the</em> Book</div>
-      <div class="bb-tagline">Answers with sources &middot; Practice quizzes &middot;
-        A quiz on anything</div>
+      <div class="bb-tagline">Create a quiz on any topic</div>
     </div>
   </div>
 </div>
@@ -180,6 +193,38 @@ def render_sources(numbered_hits: list[tuple[int, Hit]]) -> None:
             st.write(hit.chunk.text)
 
 
+def thought_label(seconds: float) -> str:
+    whole = round(seconds)
+    if whole < 1:
+        return "Thought for a moment"
+    return f"Thought for {whole} second{'s' if whole != 1 else ''}"
+
+
+def render_answer_footer(turn: dict[str, object]) -> None:
+    hits = turn["sources"]
+    assert isinstance(hits, list)
+    if not turn["grounded"]:
+        st.caption("Answered from general knowledge, not from your materials.")
+    elif hits:
+        st.caption("Sources")
+        render_sources(hits)
+    invalid = turn.get("invalid")
+    if invalid:
+        st.caption(f"Ignored citations to sources that weren't provided: {invalid}")
+
+
+def turn_record(answer: Answer) -> dict[str, object]:
+    return {
+        "question": answer.question,
+        "text": answer.text,
+        "thinking": answer.thinking,
+        "seconds": answer.thinking_seconds,
+        "sources": answer.cited_hits,
+        "grounded": answer.grounded,
+        "invalid": answer.invalid_citations,
+    }
+
+
 # --- Layout: tabs first, so the upload box can sit inside "Ask" ----------------------------
 
 ask_tab, course_tab, anyquiz_tab, about_tab = st.tabs(["Ask", "Course quiz", "AnyQuiz", "About"])
@@ -215,8 +260,15 @@ if index is None:
     st.stop()
 
 with ask_tab:
-    names = ", ".join(index.sources)
-    st.caption(f"Answering from: {names} ({len(index.chunks):,} passages)")
+    referenced = st.pills(
+        "Reference a document",
+        index.sources,
+        selection_mode="multi",
+        key="referenced_docs",
+        help="Click a document to answer only from it. Click again to go back to all of them.",
+    )
+    scope = ", ".join(referenced) if referenced else "all your documents"
+    st.caption(f"Answering from {scope} ({len(index.chunks):,} passages loaded).")
 
 provider_names = {
     "Automatic": None,
@@ -355,34 +407,69 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
 
 # --- Ask -----------------------------------------------------------------------------------
 
-with ask_tab:
-    st.session_state.setdefault("history", [])
-    for turn in st.session_state.history:
-        with st.chat_message("user"):
-            st.write(turn["question"])
-        with st.chat_message("assistant"):
-            st.markdown(turn["text"])
-            render_sources(turn["sources"])
 
-    if question := st.chat_input("Ask about your course materials...", max_chars=500):
-        with st.chat_message("user"):
-            st.write(question)
-        with st.chat_message("assistant"):
-            answer, tokens = engine.stream(question)
-            try:
-                st.write_stream(tokens)
-            except BackOfTheBookError as e:
-                show_error(e)
-            else:
-                render_sources(answer.cited_hits)
-                if answer.invalid_citations:
-                    st.caption(
-                        "Ignored citations to sources that weren't provided: "
-                        f"{answer.invalid_citations}"
-                    )
-                st.session_state.history.append(
-                    {"question": question, "text": answer.text, "sources": answer.cited_hits}
+def stream_reply(question: str, sources: list[str] | None) -> dict[str, object] | None:
+    """Stream one reply with a live "Thinking" status, then the answer and its sources."""
+    history = [Turn(str(t["question"]), str(t["text"])) for t in st.session_state.turns]
+    answer, events = engine.stream(question, history, sources)
+    status = None if llm.name == "extractive" else st.status("Thinking...", expanded=False)
+    thought_box = status.empty() if status else None
+    reply_box = st.empty()
+    thinking, text = "", ""
+    try:
+        for event in events:
+            if event.kind == "thinking" and thought_box is not None:
+                thinking += event.text
+                thought_box.markdown(
+                    f'<div class="bb-thought">{html.escape(thinking)}</div>', unsafe_allow_html=True
                 )
+            elif event.kind == "text":
+                if status is not None and not text:
+                    status.update(label=thought_label(answer.thinking_seconds), state="complete")
+                text += event.text
+                reply_box.markdown(text + " ▌")
+    except BackOfTheBookError as e:
+        if status is not None:
+            status.update(label="Something went wrong", state="error")
+        show_error(e)
+        return None
+    if status is not None and not text:
+        status.update(label=thought_label(answer.thinking_seconds), state="complete")
+    reply_box.markdown(text)
+    record = turn_record(answer)
+    render_answer_footer(record)
+    return record
+
+
+with ask_tab:
+    st.session_state.setdefault("turns", [])
+    if st.session_state.turns and st.button("New chat", key="new_chat"):
+        st.session_state.turns = []
+        st.rerun()
+
+    for turn in st.session_state.turns:
+        with st.chat_message("user"):
+            st.markdown(turn["question"])
+        with st.chat_message("assistant"):
+            if turn["thinking"]:
+                with st.expander(thought_label(turn["seconds"])):
+                    st.markdown(
+                        f'<div class="bb-thought">{html.escape(str(turn["thinking"]))}</div>',
+                        unsafe_allow_html=True,
+                    )
+            st.markdown(turn["text"])
+            render_answer_footer(turn)
+
+    new_turn = st.container()  # keeps the newest exchange above the input box
+    question = st.chat_input("Ask anything, or ask about your documents", max_chars=2000)
+    if question:
+        with new_turn:
+            with st.chat_message("user"):
+                st.markdown(question)
+            with st.chat_message("assistant"):
+                record = stream_reply(question, referenced or None)
+        if record is not None:
+            st.session_state.turns.append(record)
 
 # --- Quizzes -------------------------------------------------------------------------------
 
@@ -396,12 +483,12 @@ with course_tab:
 
 with anyquiz_tab:
     st.markdown(
-        "**Any topic you like.** AnyQuiz looks the topic up on Wikipedia and writes the quiz "
-        "from that article, so every answer comes with a source you can check."
+        "**Any topic you like.** AnyQuiz looks up a reliable source on the topic and writes the "
+        "quiz from it, so every answer comes with a source you can check."
     )
     quiz_tab(
         "anyquiz",
-        "e.g. Super Mario Galaxy, the French Revolution, photosynthesis",
+        "e.g. Pokémon, the NFL, the French Revolution",
         lambda topic, n, level: generate_anyquiz(llm, topic, n, level),
     )
 
@@ -412,10 +499,12 @@ with about_body:
         """
 ### How it works
 
-**Ask.** Your question is matched against your course materials (or the sample textbook).
-The closest passages are given to the AI, which answers using only those passages and cites
-them. Open a source under any answer to read the original text and see its page number.
-If nothing in your materials is close to the question, it says so instead of guessing.
+**Ask.** Chat with the AI like any assistant: it remembers the conversation, works through
+problems step by step, and shows what it was thinking. When your materials cover the
+question, it uses the closest passages and cites them, so you can open a source and see the
+original text and page number. Click a document above the chat to answer only from that
+document. When your materials don't cover a question, it answers from general knowledge
+and says so.
 
 **Course quiz.** Questions are written only from passages in your materials, and every
 question lists the passage it came from.
@@ -433,8 +522,8 @@ We tested it on a 561-page data science textbook with questions whose correct pa
 knew in advance:
 
 - For **70 of 75** questions, the right page was among the five passages it read first.
-- It answered all **94** real questions and declined **32 of 35** questions that had
-  nothing to do with the book.
+- It recognized that **32 of 35** questions that had nothing to do with the book weren't
+  in it, and labeled those answers as general knowledge instead of citing the book.
 
 ### Things to keep in mind
 
