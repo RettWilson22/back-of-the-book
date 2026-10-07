@@ -45,8 +45,61 @@ INDEX_DIR = Path(os.environ.get("COURSEPILOT_INDEX") or default_index_dir(ROOT))
 USE_SAMPLE = os.environ.get("COURSEPILOT_SAMPLE", "1") != "0"
 DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
-st.set_page_config(page_title="CoursePilot", page_icon="🎓", layout="wide")
+st.set_page_config(
+    page_title="CoursePilot", page_icon=str(ROOT / "app" / "static" / "favicon.png"), layout="wide"
+)
 logger = logging.getLogger("coursepilot.app")
+
+STYLE = """
+<style>
+/* Hide Streamlit's own chrome so the page reads like a normal website. */
+header[data-testid="stHeader"], footer, [data-testid="stToolbar"] { display: none; }
+.block-container { padding-top: 0; max-width: 1100px; }
+
+.cp-masthead {
+  background: #22313f; color: #f6f3ec; margin: 0 -100vw 1.4rem; padding: 1.1rem 100vw 1rem;
+  border-bottom: 4px solid #2a6496;
+}
+.cp-brand { font-family: Georgia, "Times New Roman", serif; font-size: 2rem; font-weight: bold;
+  letter-spacing: 0.5px; }
+.cp-tagline { font-size: 0.95rem; color: #c9d3dd; margin-top: 0.1rem; }
+
+/* Classic rectangular tabs with a rule underneath. */
+[data-testid="stTabs"] [role="tablist"] { gap: 4px; border-bottom: 1px solid #cfc6b4; }
+[data-testid="stTab"] { background: #ebe5d8; border: 1px solid #cfc6b4; border-bottom: none;
+  padding: 0.45rem 1.1rem; margin-bottom: -1px; }
+[data-testid="stTab"] p { font-weight: 600; }
+[data-testid="stTab"][aria-selected="true"] { background: #f6f3ec; color: #2a6496;
+  box-shadow: inset 0 3px 0 #2a6496; }
+
+.cp-mark { display: inline-block; padding: 0 0.45rem; border: 1px solid; font-size: 0.8rem;
+  font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; margin-right: 0.4rem; }
+.cp-right { color: #2e6b30; background: #e6f2e4; border-color: #9cc49a; }
+.cp-wrong { color: #8c2a24; background: #f7e4e1; border-color: #d9a29b; }
+
+.cp-footer { margin-top: 3rem; padding: 1rem 0; border-top: 1px solid #cfc6b4;
+  font-size: 0.85rem; color: #6b6458; }
+</style>
+"""
+
+MASTHEAD = """
+<div class="cp-masthead">
+  <div class="cp-brand">CoursePilot</div>
+  <div class="cp-tagline">Answers with sources, practice quizzes, and a quiz on anything.</div>
+</div>
+"""
+
+FOOTER = """
+<div class="cp-footer">
+  CoursePilot, built by Rett Wilson &middot;
+  <a href="https://github.com/RettWilson22/coursepilot">Source code on GitHub</a> &middot;
+  Sample textbook: OpenStax <i>Principles of Data Science</i> (CC BY-NC-SA 4.0) &middot;
+  AnyQuiz text from Wikipedia (CC BY-SA 4.0)
+</div>
+"""
+
+st.markdown(STYLE, unsafe_allow_html=True)
+st.markdown(MASTHEAD, unsafe_allow_html=True)
 
 # Errors caused by what the user typed are shown as information, not as failures.
 _INPUT_ERRORS = {
@@ -111,7 +164,7 @@ def render_sources(numbered_hits: list[tuple[int, Hit]]) -> None:
 
 # --- Sidebar: materials and settings -----------------------------------------------------
 
-st.sidebar.title("🎓 CoursePilot")
+st.sidebar.header("Your materials")
 if USE_SAMPLE and not (INDEX_DIR / "meta.json").exists():
     with st.spinner(
         "First start: downloading the sample textbook and indexing it. This takes about a minute."
@@ -220,7 +273,7 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
             "Difficulty", [d.value.title() for d in Difficulty], index=1, horizontal=True
         )
         count = st.slider("Number of questions", 3, MAX_QUESTIONS, 5)
-        submitted = st.form_submit_button("Generate quiz")
+        submitted = st.form_submit_button("Generate quiz", type="primary")
     if submitted:
         with st.spinner("Reading the sources and writing your quiz..."):
             quiz = guarded(lambda: generate(topic, count, Difficulty(level.lower())))
@@ -241,11 +294,15 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
     if quiz.source_url:
         note += " Wikipedia text is available under CC BY-SA 4.0."
     st.caption(note)
-    picks = [
-        st.radio(f"**{i}. {q.question}**", q.choices, index=None, key=f"{key}_{quiz_id}_q{i}")
-        for i, q in enumerate(quiz.questions, start=1)
-    ]
-    if st.button("Check answers", key=f"{key}_check"):
+    picks = []
+    for i, q in enumerate(quiz.questions, start=1):
+        with st.container(border=True):
+            picks.append(
+                st.radio(
+                    f"**{i}. {q.question}**", q.choices, index=None, key=f"{key}_{quiz_id}_q{i}"
+                )
+            )
+    if st.button("Check answers", key=f"{key}_check", type="primary"):
         st.session_state[f"{key}_graded"] = True
     if st.session_state.get(f"{key}_graded"):
         pairs = list(zip(picks, quiz.questions, strict=True))
@@ -253,8 +310,14 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
         st.subheader(f"Score: {score} / {len(quiz.questions)}")
         for i, (pick, q) in enumerate(pairs, start=1):
             correct = q.choices[q.answer_index]
-            mark = "✅" if pick == correct else "❌"
-            st.markdown(f"{mark} **{i}.** Correct answer: *{correct}*. {q.explanation}")
+            mark = (
+                '<span class="cp-mark cp-right">Correct</span>'
+                if pick == correct
+                else '<span class="cp-mark cp-wrong">Incorrect</span>'
+            )
+            st.markdown(
+                f"{mark} **{i}.** Answer: *{correct}*. {q.explanation}", unsafe_allow_html=True
+            )
             st.caption(
                 f"Source: {source_links(quiz, q)} · [Report a problem]({report_link(quiz, q)})"
             )
@@ -267,9 +330,7 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
         st.caption("Left out " + " and ".join(removed) + " question(s).")
 
 
-ask_tab, course_tab, anyquiz_tab, eval_tab = st.tabs(
-    ["💬 Ask", "📝 Course quiz", "🎲 AnyQuiz", "📊 How accurate is it?"]
-)
+ask_tab, course_tab, anyquiz_tab, eval_tab = st.tabs(["Ask", "Course quiz", "AnyQuiz", "Accuracy"])
 
 # --- Ask -----------------------------------------------------------------------------------
 
@@ -338,3 +399,5 @@ with eval_tab:
         if path.exists():
             st.subheader(title)
             st.markdown(path.read_text())
+
+st.markdown(FOOTER, unsafe_allow_html=True)

@@ -1,0 +1,24 @@
+# A plain, classic look: paper background, serif headings, square corners, link-blue accents.
+[theme]
+base = "light"
+primaryColor = "#2a6496"
+backgroundColor = "#f6f3ec"
+secondaryBackgroundColor = "#ebe5d8"
+textColor = "#222222"
+linkColor = "#1a5ea8"
+linkUnderline = true
+borderColor = "#cfc6b4"
+showWidgetBorder = true
+font = "Helvetica Neue, Helvetica, Arial, sans-serif"
+headingFont = "Georgia, Times New Roman, serif"
+baseRadius = "3px"
+buttonRadius = "3px"
+
+[theme.sidebar]
+backgroundColor = "#ebe5d8"
+
+[server]
+enableStaticServing = true
+
+[client]
+toolbarMode = "minimal"
