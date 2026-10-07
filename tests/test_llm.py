@@ -20,6 +20,7 @@ from backofthebook.llm import (
     ExtractiveProvider,
     GroqProvider,
     LLMError,
+    StreamEvent,
     _claude_error,
     _groq_error,
     make_provider,
@@ -33,10 +34,24 @@ class Answer(BaseModel):
 # --- Claude -------------------------------------------------------------------------------
 
 
+def _delta(kind: str, value: str) -> SimpleNamespace:
+    field = "thinking" if kind == "thinking_delta" else "text"
+    return SimpleNamespace(
+        type="content_block_delta", delta=SimpleNamespace(type=kind, **{field: value})
+    )
+
+
 class FakeClaudeStream:
     def __init__(self, tokens: list[str], stop_reason: str) -> None:
-        self.text_stream = iter(tokens)
+        self._events = [
+            SimpleNamespace(type="content_block_start"),
+            _delta("thinking_delta", "Let me think."),
+            *[_delta("text_delta", t) for t in tokens],
+        ]
         self._final = SimpleNamespace(stop_reason=stop_reason)
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        return iter(self._events)
 
     def __enter__(self) -> FakeClaudeStream:
         return self
@@ -74,25 +89,33 @@ class FakeClaudeClient:
         return SimpleNamespace(stop_reason=self._stop, parsed_output=self._parsed)
 
 
-def test_claude_stream_request_uses_effort_and_server_side_fallback():
-    client = FakeClaudeClient()
-    text = "".join(ClaudeProvider(client=client, effort="high").stream_text("sys", "question"))
+CONVERSATION = [
+    {"role": "user", "content": "first"},
+    {"role": "assistant", "content": "reply"},
+    {"role": "user", "content": "question"},
+]
 
-    assert text == "Hi there"
+
+def test_claude_streams_thinking_then_text_with_effort_and_fallback():
+    client = FakeClaudeClient()
+    events = list(ClaudeProvider(client=client, effort="high").chat_stream("sys", CONVERSATION))
+
+    assert events[0] == StreamEvent("thinking", "Let me think.")
+    assert "".join(e.text for e in events if e.kind == "text") == "Hi there"
     call = client.calls[0]
     assert call["model"] == CLAUDE_DEFAULT_MODEL == "claude-opus-5-5"
     assert call["system"] == "sys"
-    assert call["messages"] == [{"role": "user", "content": "question"}]
+    assert call["messages"] == CONVERSATION
+    assert call["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert call["output_config"] == {"effort": "high"}
     assert call["betas"] == [FALLBACK_BETA]
     assert call["fallbacks"] == "default"
-    assert "thinking" not in call  # Opus 5.5 always thinks; effort is the control
 
 
 def test_claude_stream_refusal_raises():
     provider = ClaudeProvider(client=FakeClaudeClient(stop_reason="refusal"))
     with pytest.raises(LLMError, match="declined") as raised:
-        list(provider.stream_text("sys", "q"))
+        list(provider.chat_stream("sys", CONVERSATION))
     assert raised.value.code is ErrorCode.LLM_REFUSED
 
 
@@ -149,7 +172,7 @@ def test_claude_errors_get_codes(error: Exception, code: ErrorCode, retryable: b
     assert (mapped.code, mapped.retryable) == (code, retryable)
     provider = ClaudeProvider(client=FakeClaudeClient(raises=error))
     with pytest.raises(LLMError) as raised:
-        list(provider.stream_text("sys", "q"))
+        list(provider.chat_stream("sys", CONVERSATION))
     assert raised.value.code is code
 
 
@@ -157,7 +180,11 @@ def test_claude_errors_get_codes(error: Exception, code: ErrorCode, retryable: b
 
 
 class FakeGroqClient:
-    def __init__(self, replies: list[str] | None = None, deltas=("A", None, "B")) -> None:
+    def __init__(
+        self,
+        replies: list[str] | None = None,
+        deltas=(("Hmm", None), (None, "A"), (None, None), (None, "B")),
+    ) -> None:
         self.calls: list[dict[str, Any]] = []
         self._replies = list(replies or [])
         self._deltas = deltas
@@ -167,17 +194,37 @@ class FakeGroqClient:
         self.calls.append(kwargs)
         if kwargs.get("stream"):
             return [
-                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=d))])
-                for d in self._deltas
+                SimpleNamespace(
+                    choices=[SimpleNamespace(delta=SimpleNamespace(reasoning=r, content=c))]
+                )
+                for r, c in self._deltas
             ]
         content = self._replies.pop(0)
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
 
 
-def test_groq_stream_skips_empty_deltas():
+def test_groq_streams_reasoning_and_text_and_skips_empty_deltas():
     client = FakeGroqClient()
-    assert "".join(GroqProvider(client=client).stream_text("sys", "q")) == "AB"
-    assert client.calls[0]["messages"][0] == {"role": "system", "content": "sys"}
+    events = list(GroqProvider(client=client).chat_stream("sys", CONVERSATION))
+
+    assert events == [
+        StreamEvent("thinking", "Hmm"),
+        StreamEvent("text", "A"),
+        StreamEvent("text", "B"),
+    ]
+    call = client.calls[0]
+    assert call["messages"] == [{"role": "system", "content": "sys"}, *CONVERSATION]
+    assert call["include_reasoning"] is True
+
+
+def test_groq_only_requests_reasoning_from_models_that_support_it():
+    client = FakeGroqClient()
+    list(
+        GroqProvider(model="llama-3.3-70b-versatile", client=client).chat_stream(
+            "sys", CONVERSATION
+        )
+    )
+    assert "include_reasoning" not in client.calls[0]
 
 
 def test_groq_generate_parses_fenced_json():
@@ -217,7 +264,8 @@ def test_extractive_provider_quotes_sources_with_labels():
         "Course-material excerpts:\n\n[S1] (a.pdf, p. 2)\nThe median is the middle.\n\n"
         "Student question: q"
     )
-    text = "".join(ExtractiveProvider().stream_text("sys", prompt))
+    events = ExtractiveProvider().chat_stream("sys", [{"role": "user", "content": prompt}])
+    text = "".join(e.text for e in events)
     assert "The median is the middle. [S1]" in text
 
 

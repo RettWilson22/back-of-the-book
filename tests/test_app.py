@@ -38,26 +38,65 @@ def app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     return start
 
 
-def test_app_shows_loaded_materials(app):
+def test_app_shows_loaded_materials_as_clickable_documents(app):
     at = app(FakeLLM())
-    assert any("Answering from: ml.pptx, stats.pdf" in c.value for c in at.caption)
     assert at.file_uploader  # the upload box lives in the Ask tab, not a sidebar
     assert not at.sidebar.caption
+    assert at.button_group[0].options == ["ml.pptx", "stats.pdf"]
+    assert any("Answering from all your documents" in c.value for c in at.caption)
 
 
-def test_ask_streams_answer_and_shows_cited_sources(app):
-    at = app(FakeLLM("A decision tree asks yes or no questions [S1]."))
-    at.chat_input[0].set_value("how does a decision tree split data with questions").run()
+def test_clicking_a_document_answers_only_from_it(app):
+    llm = FakeLLM("From the stats notes [S1].")
+    at = app(llm)
+    at.button_group[0].select("stats.pdf").run()
+    assert any("Answering from stats.pdf" in c.value for c in at.caption)
+
+    ask(at, "how is the mean computed from the sum of the values")
+    assert not at.exception
+    labels = [e.label for e in at.expander]
+    assert labels and all("stats.pdf" in label for label in labels)
+
+
+def ask(at: AppTest, question: str) -> AppTest:
+    return at.chat_input[0].set_value(question).run()
+
+
+def test_ask_shows_thinking_answer_and_cited_sources(app):
+    llm = FakeLLM("A decision tree asks yes or no questions [S1].", thinking="Use S1.")
+    at = ask(app(llm), "how does a decision tree split data with questions")
 
     assert not at.exception
     assert any("yes or no questions [S1]" in m.value for m in at.markdown)
-    assert at.expander[0].label.startswith("[S1] ml.pptx, p. 1")
+    assert [s.label for s in at.get("status")] == ["Thought for a moment"]
+    assert any(e.label.startswith("[S1] ml.pptx, p. 1") for e in at.expander)
 
 
-def test_off_topic_question_is_declined(app):
-    at = app(FakeLLM("should not appear"))
-    at.chat_input[0].set_value("volcano eruption lava").run()
-    assert any("couldn't find this" in m.value for m in at.markdown)
+def test_follow_up_question_sends_the_whole_conversation(app):
+    llm = FakeLLM("Splits on questions [S1].")
+    at = ask(app(llm), "how does a decision tree split data with questions")
+    ask(at, "why?")
+
+    assert not at.exception
+    roles = [m["role"] for m in llm.conversations[-1]]
+    assert roles == ["user", "assistant", "user"]
+    assert any(b.label == "New chat" for b in at.button)
+
+
+def test_off_topic_question_is_answered_and_labeled_general_knowledge(app):
+    llm = FakeLLM("This isn't covered in your materials, so here's a general answer.")
+    at = ask(app(llm), "volcano eruption lava")
+
+    assert not at.exception
+    assert any("general answer" in m.value for m in at.markdown)
+    assert any("general knowledge, not from your materials" in c.value for c in at.caption)
+
+
+def test_thinking_text_is_escaped_not_rendered_as_html(app):
+    llm = FakeLLM("Fine [S1].", thinking="<img src=x onerror=alert(1)>")
+    at = ask(app(llm), "how does a decision tree split data with questions")
+    rendered = " ".join(m.value for m in at.markdown)
+    assert "&lt;img" in rendered and "<img" not in rendered
 
 
 def kmeans_question(**overrides) -> QuizQuestion:

@@ -57,10 +57,13 @@ def cmd_ask(args: argparse.Namespace) -> int:
     engine = AnswerEngine(
         _retriever(args.index or default_index_dir()), make_provider(args.llm), k=args.k
     )
-    answer, tokens = engine.stream(args.question)
-    for token in tokens:
-        print(token, end="", flush=True)
+    answer, events = engine.stream(args.question)
+    for event in events:
+        if event.kind == "text":
+            print(event.text, end="", flush=True)
     print("\n")
+    if not answer.grounded:
+        print("  (answered from general knowledge, not your materials)")
     for n, hit in answer.cited_hits:
         print(f"  [S{n}] {hit.chunk.citation}")
     if answer.invalid_citations:

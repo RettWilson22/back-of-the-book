@@ -1,7 +1,15 @@
 import pytest
 from conftest import FakeLLM
 
-from backofthebook.answer import NOT_FOUND_MESSAGE, AnswerEngine, build_prompt, extract_citations
+from backofthebook.answer import (
+    NOT_FOUND_MESSAGE,
+    AnswerEngine,
+    Turn,
+    build_prompt,
+    extract_citations,
+    retrieval_query,
+)
+from backofthebook.llm import ExtractiveProvider
 from backofthebook.quiz import (
     Quiz,
     QuizDraft,
@@ -39,29 +47,59 @@ def test_prompt_labels_sources_with_citations(retriever: Retriever):
     assert prompt.endswith("Student question: What is the median?")
 
 
-def test_off_topic_question_is_declined_without_calling_the_llm(retriever: Retriever):
-    llm = FakeLLM("should not be used")
-    engine = AnswerEngine(retriever, llm, min_similarity=0.3)
+def test_off_topic_question_is_answered_from_general_knowledge(retriever: Retriever):
+    llm = FakeLLM("This isn't covered in your materials, so here's a general answer.")
+    answer = AnswerEngine(retriever, llm, min_similarity=0.3).ask("volcano eruption lava")
 
-    answer = engine.ask("volcano eruption lava")
+    assert not answer.grounded
+    assert answer.sources == [] and answer.cited == []
+    assert "No relevant excerpts were found" in llm.prompts[0][1]
 
-    assert not answer.found
+
+def test_off_topic_question_without_an_llm_says_it_is_not_in_the_materials(retriever: Retriever):
+    answer = AnswerEngine(retriever, ExtractiveProvider(), min_similarity=0.3).ask("volcano lava")
+    assert not answer.grounded
     assert answer.text == NOT_FOUND_MESSAGE
-    assert llm.prompts == []
 
 
-def test_answer_streams_and_records_valid_and_invalid_citations(retriever: Retriever):
-    llm = FakeLLM("The median is the middle value [S1]. Also see [S7].")
+def test_answer_streams_thinking_and_text_and_checks_citations(retriever: Retriever):
+    llm = FakeLLM("The median is the middle value [S1]. Also see [S7].", thinking="Look at S1.")
     engine = AnswerEngine(retriever, llm, k=3, min_similarity=0.0)
 
-    answer, tokens = engine.stream("what is the median of sorted data")
-    streamed = "".join(tokens)
+    answer, events = engine.stream("what is the median of sorted data")
+    kinds = [e.kind for e in events]
 
-    assert streamed == llm.reply == answer.text
+    assert kinds[0] == "thinking" and set(kinds[1:]) == {"text"}
+    assert answer.text == llm.reply
+    assert answer.thinking == "Look at S1."
+    assert answer.thinking_seconds >= 0
+    assert answer.grounded
     assert answer.cited == [1]
     assert answer.invalid_citations == [7]
     assert answer.cited_hits[0][1].chunk.page == 2
     assert "Student question: what is the median of sorted data" in llm.prompts[0][1]
+
+
+def test_follow_up_questions_see_the_conversation_and_reuse_context(retriever: Retriever):
+    llm = FakeLLM("It's the middle value [S1].")
+    engine = AnswerEngine(retriever, llm, min_similarity=0.0)
+    history = [Turn("What is the median of sorted data?", "The middle value.")]
+
+    engine.ask("why?", history)
+
+    conversation = llm.conversations[0]
+    assert [m["role"] for m in conversation] == ["user", "assistant", "user"]
+    assert conversation[0]["content"] == "What is the median of sorted data?"
+    assert retrieval_query("why?", history) == "What is the median of sorted data? why?"
+    assert retrieval_query("Explain how k-means picks its centroids", history).startswith("Explain")
+
+
+def test_referencing_a_document_limits_sources_to_it(retriever: Retriever):
+    llm = FakeLLM("Answer [S1].")
+    answer = AnswerEngine(retriever, llm, min_similarity=0.0).ask(
+        "decision tree questions", sources=["stats.pdf"]
+    )
+    assert answer.sources and {h.chunk.source for h in answer.sources} == {"stats.pdf"}
 
 
 def test_engine_falls_back_to_hybrid_without_a_reranker(retriever: Retriever):

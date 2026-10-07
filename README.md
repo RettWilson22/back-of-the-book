@@ -26,20 +26,20 @@ Retrieval accuracy on [OpenStax *Principles of Data Science*](https://openstax.o
 - Plain hybrid search is *worse* than embeddings alone at Recall@10. BM25 pulls in passages that share words but not meaning. Fusion only paid off once a reranker re-scored the candidates.
 - Both remaining reranker misses (out of 75) are next-page continuations of the labeled page, not wrong answers. The strict single-page metric counts them as misses anyway; I didn't relax it after seeing results.
 
-**Declining off-topic questions.** Before calling the LLM, Back of the Book checks how close the best passage is to the question and declines if nothing in the materials is close. The threshold was set on the main question set and then checked on a [held-out set](eval/heldout.jsonl) written afterwards:
+**Knowing when the materials don't cover a question.** Before answering, Back of the Book checks how close the best passage is to the question. If nothing is close, it answers from general knowledge and labels the answer that way instead of citing passages that don't support it. The threshold was set on the main question set and then checked on a [held-out set](eval/heldout.jsonl) written afterwards:
 
-| Threshold | Main set: real questions kept / off-topic declined | Held-out: kept / declined |
+| Threshold | Main set: real questions kept / off-topic flagged | Held-out: kept / flagged |
 |---|---|---|
 | 0.25 (original guess) | 100% / 65% | 100% / 33% |
 | **0.35 (default)** | **100% / 95%** | **100% / 87%** |
 
-Off-topic questions that still get through: "SOLID principles", "public-key cryptography" (the book discusses data security), and, oddly, "Who painted the Mona Lisa?". For those, the prompt tells the model to answer only from the provided passages and say when they don't cover the question.
+Off-topic questions that still get through: "SOLID principles", "public-key cryptography" (the book discusses data security), and, oddly, "Who painted the Mona Lisa?". For those, the model is told to rely on the passages only where they actually support the answer.
 
 > These are small evaluation sets: about ±10 points of uncertainty on 75 questions, more on the held-out set. Read differences of a few points as indicative.
 
 ## AnyQuiz: a quiz on any topic
 
-Type any topic (*Super Mario Galaxy*, *the French Revolution*, *photosynthesis*), pick **Easy**, **Medium**, or **Hard**, and the AI writes a multiple-choice quiz from its own knowledge. Take it in the app and get graded, with an explanation for every answer.
+Type any topic (*Pokémon*, *the NFL*, *the French Revolution*), pick **Easy**, **Medium**, or **Hard**, and get a multiple-choice quiz. Take it in the app and get graded, with an explanation and a source link for every answer.
 
 | Difficulty | What the questions test |
 |---|---|
@@ -47,9 +47,11 @@ Type any topic (*Super Mario Galaxy*, *the French Revolution*, *photosynthesis*)
 | Medium | Understanding and application; plausible wrong choices |
 | Hard | Multi-step reasoning and edge cases; wrong choices based on common misconceptions |
 
-**Double-check.** A quiz written from memory can have a wrong answer key. That's worse than useless when you're studying. So after writing the quiz, AnyQuiz runs a second pass that answers every question **without seeing the key**. Questions where the two passes disagree are left out, and the app says how many. The quiz asks for a couple of spare questions so you still get the number you asked for. You can turn the check off for a faster quiz.
+**Every quiz comes from a source.** An earlier version wrote quizzes from the model's memory, and live testing on niche topics (Super Mario Galaxy) produced wrong answer keys. A second pass that re-answered from memory couldn't catch them, because a model that's confidently wrong is wrong both times. So AnyQuiz now finds the topic's Wikipedia article (skipping "may refer to" pages), splits it into passages covering every section, and writes questions only from those passages. Each question must cite the passage that states its answer.
 
-AnyQuiz is clearly labeled as written from general knowledge, separate from the **Course quiz**, which only uses your materials and cites a source for every question. If you ask the course quiz about something your materials don't cover, it declines and points you to AnyQuiz.
+**Source check.** After the quiz is written, a separate pass sees each question, its choices, and its cited passages, but not the answer key, and picks the answer the passages support (or none). Questions where that doesn't match the key are left out, and the app says how many. The quiz asks for a couple of spare questions so you still get the number you asked for. The **Course quiz** works the same way, using passages from your materials instead.
+
+If a question still looks wrong, **Report a problem** under it opens a pre-filled GitHub issue with the question, answer key, and sources.
 
 ## Error codes
 
@@ -88,7 +90,7 @@ Invalid input is rejected **before** any API call. A test checks that every code
  question ─► retrieval.py   BM25 + embeddings → reciprocal rank fusion
         │                   → cross-encoder rerank (ms-marco-MiniLM-L6-v2)
         ▼
- answer.py  off-topic check → prompt with labeled passages [S1]..[Sn]
+ answer.py  relevance check → conversation + labeled passages [S1]..[Sn] (or none)
         │   → LLM streams an answer → citations checked against the passages
         ▼
  quiz.py    course quiz: same retrieval → structured JSON quiz → each question validated
@@ -103,7 +105,7 @@ Invalid input is rejected **before** any API call. A test checks that every code
 | [`index.py`](src/backofthebook/index.py) | Builds, saves, and loads the index (`chunks.jsonl`, `embeddings.npy`, `meta.json`). No database server. |
 | [`retrieval.py`](src/backofthebook/retrieval.py) | Four retrieval modes behind one interface, so the eval compares them on identical inputs. |
 | [`llm.py`](src/backofthebook/llm.py) | Claude, Groq, and offline providers behind one small interface. |
-| [`answer.py`](src/backofthebook/answer.py) | Off-topic check, prompt, streaming, citation validation. |
+| [`answer.py`](src/backofthebook/answer.py) | Conversation memory, relevance check, prompt, streaming reasoning and answer, citation validation. |
 | [`quiz.py`](src/backofthebook/quiz.py) | Course quiz and AnyQuiz, difficulty levels, validation, double-check. |
 | [`errors.py`](src/backofthebook/errors.py) | Error codes, messages, retryability, and CLI exit codes. |
 | [`evaluation.py`](src/backofthebook/evaluation.py) | Recall@k, MRR, and off-topic metrics. |
@@ -112,7 +114,8 @@ Invalid input is rejected **before** any API call. A test checks that every code
 ## Design decisions
 
 - **Citations are checked, not trusted.** The model can only cite `[S1]`–`[Sn]`. Anything else is reported as an invalid citation instead of being shown as a source.
-- **Decline before generating.** An off-topic question never reaches the LLM. That's cheaper, and the model has no chance to answer from its own knowledge.
+- **Say where an answer comes from.** When the materials cover a question, the answer cites them. When they don't, it's answered from general knowledge and labeled that way, rather than refused or dressed up with citations that don't support it.
+- **Show the model's reasoning.** Claude returns a reasoning summary (`thinking.display: "summarized"`) and Groq's gpt-oss models return reasoning text, streamed into a collapsible "Thought for N seconds" section.
 - **Chunks never cross pages.** Slightly less context per chunk, but every passage maps to exactly one page. That's what makes page-level citations and page-level evaluation possible.
 - **Retrieval is evaluated without an LLM.** The metrics are deterministic, free to rerun, and isolate the part of the system most responsible for wrong answers.
 - **Quizzes use structured output.** On Claude, the response must match a JSON schema (`output_format`). On Groq, JSON mode plus Pydantic validation, with one automatic repair attempt. Invalid questions are dropped, not shown.
@@ -176,7 +179,7 @@ pytest -m slow         # real embedding/reranking models; includes a guard that 
 ruff check . && mypy src app/streamlit_app.py
 ```
 
-The fast tests cover every module (96% line coverage), every error code, the CLI end to end including exit codes, and the web app through Streamlit's `AppTest`: asking, declining, taking and grading both kinds of quiz, and how errors are shown. CI runs lint, strict type checking, and tests on every push.
+The fast tests cover every module (96% line coverage), every error code, the CLI end to end including exit codes, and the web app through Streamlit's `AppTest`: asking, follow-up questions, referencing a document, reasoning display, general-knowledge labeling, taking and grading both kinds of quiz, and how errors are shown. CI runs lint, strict type checking, and tests on every push.
 
 ## Limitations
 
