@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     from sentence_transformers import SentenceTransformer
 
 INDEX_FORMAT_VERSION = 1
+USER_INDEX = Path(".coursepilot/index")  # where `coursepilot ingest` writes by default
+BUNDLED_INDEX = Path("data/index")  # prebuilt index of the sample textbook, shipped in the repo
 DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 
@@ -28,6 +30,12 @@ class Embedder(Protocol):
     def encode(self, texts: list[str]) -> np.ndarray:
         """Return a (len(texts), dim) float32 array of L2-normalized vectors."""
         ...
+
+
+def default_index_dir(root: Path = Path(".")) -> Path:
+    """Your own ingested index if there is one, otherwise the bundled sample index."""
+    user = root / USER_INDEX
+    return user if (user / "meta.json").exists() else root / BUNDLED_INDEX
 
 
 class SentenceTransformerEmbedder:

@@ -1,0 +1,8 @@
+{
+  "format_version": 1,
+  "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+  "num_chunks": 1479,
+  "sources": [
+    "principles-of-data-science.pdf"
+  ]
+}

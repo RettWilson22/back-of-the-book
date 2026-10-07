@@ -15,15 +15,21 @@ from streamlit.runtime.uploaded_file_manager import UploadedFile
 from coursepilot.answer import AnswerEngine
 from coursepilot.chunking import chunk_pages
 from coursepilot.documents import SUPPORTED_SUFFIXES, load_document
-from coursepilot.index import CorpusIndex, Embedder, IndexBuildError, SentenceTransformerEmbedder
+from coursepilot.index import (
+    CorpusIndex,
+    Embedder,
+    IndexBuildError,
+    SentenceTransformerEmbedder,
+    default_index_dir,
+)
 from coursepilot.llm import LLMError, make_provider
 from coursepilot.quiz import generate_quiz
 from coursepilot.retrieval import CrossEncoderReranker, Hit, Retriever
 from coursepilot.sample import build_sample_index
 
 ROOT = Path(__file__).resolve().parents[1]
-INDEX_DIR = Path(os.environ.get("COURSEPILOT_INDEX", ROOT / ".coursepilot" / "index"))
-# With no index yet, download and index the sample textbook on first start (set to 0 to skip).
+INDEX_DIR = Path(os.environ.get("COURSEPILOT_INDEX") or default_index_dir(ROOT))
+# The repo ships a prebuilt sample index, so this only runs if it was deleted (0 to skip).
 USE_SAMPLE = os.environ.get("COURSEPILOT_SAMPLE", "1") != "0"
 DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 

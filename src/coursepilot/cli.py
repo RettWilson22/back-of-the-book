@@ -7,10 +7,10 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from coursepilot.index import USER_INDEX, default_index_dir
+
 if TYPE_CHECKING:
     from coursepilot.retrieval import Retriever
-
-DEFAULT_INDEX = Path(".coursepilot/index")
 
 
 def _retriever(index_dir: Path, rerank: bool = True) -> Retriever:
@@ -42,8 +42,9 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     chunks = chunk_pages(pages, max_words=args.chunk_words, overlap_words=args.overlap_words)
     print(f"Embedding {len(chunks)} chunks...")
     index = CorpusIndex.build(chunks, SentenceTransformerEmbedder(args.embedding_model))
-    index.save(args.index)
-    print(f"Saved index to {args.index}")
+    destination = args.index or USER_INDEX
+    index.save(destination)
+    print(f"Saved index to {destination}")
     return 0
 
 
@@ -51,7 +52,9 @@ def cmd_ask(args: argparse.Namespace) -> int:
     from coursepilot.answer import AnswerEngine
     from coursepilot.llm import LLMError, make_provider
 
-    engine = AnswerEngine(_retriever(args.index), make_provider(args.llm), k=args.k)
+    engine = AnswerEngine(
+        _retriever(args.index or default_index_dir()), make_provider(args.llm), k=args.k
+    )
     answer, tokens = engine.stream(args.question)
     try:
         for token in tokens:
@@ -72,7 +75,12 @@ def cmd_quiz(args: argparse.Namespace) -> int:
     from coursepilot.quiz import generate_quiz
 
     try:
-        quiz = generate_quiz(_retriever(args.index), make_provider(args.llm), args.topic, args.n)
+        quiz = generate_quiz(
+            _retriever(args.index or default_index_dir()),
+            make_provider(args.llm),
+            args.topic,
+            args.n,
+        )
     except LLMError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
@@ -92,7 +100,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
     from coursepilot.retrieval import Mode
 
     questions = load_questions(args.questions)
-    retriever = _retriever(args.index)
+    retriever = _retriever(args.index or default_index_dir())
     results = []
     for mode in Mode:
         print(f"Evaluating {mode.value}...", file=sys.stderr)
@@ -116,7 +124,12 @@ def cmd_eval(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="coursepilot", description=__doc__)
-    parser.add_argument("--index", type=Path, default=DEFAULT_INDEX, help="index directory")
+    parser.add_argument(
+        "--index",
+        type=Path,
+        help="index directory (default: .coursepilot/index if it exists, else the bundled "
+        "sample index in data/index)",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("ingest", help="index course materials (PDF, PPTX, Markdown, text)")

@@ -86,3 +86,22 @@ def test_top_similarity_is_higher_for_on_topic_questions(retriever: Retriever):
     assert retriever.top_similarity("decision tree questions") > retriever.top_similarity(
         "volcano eruption lava"
     )
+
+
+def test_default_index_prefers_the_users_own_index(tmp_path: Path, index: CorpusIndex):
+    from coursepilot.index import BUNDLED_INDEX, USER_INDEX, default_index_dir
+
+    assert default_index_dir(tmp_path) == tmp_path / BUNDLED_INDEX
+    index.save(tmp_path / USER_INDEX)
+    assert default_index_dir(tmp_path) == tmp_path / USER_INDEX
+
+
+def test_bundled_sample_index_is_valid():
+    root = Path(__file__).resolve().parents[1]
+    bundled = CorpusIndex.load(root / "data" / "index")
+
+    assert bundled.sources == ["principles-of-data-science.pdf"]
+    assert len(bundled.chunks) == 1479
+    assert bundled.embeddings.shape == (1479, 384)
+    assert np.allclose((bundled.embeddings**2).sum(axis=1), 1.0, atol=1e-4)
+    assert all(c.label for c in bundled.chunks if c.page > 10)  # printed page numbers detected
