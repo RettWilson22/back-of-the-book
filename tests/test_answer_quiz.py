@@ -1,3 +1,4 @@
+import pytest
 from conftest import FakeLLM
 
 from coursepilot.answer import NOT_FOUND_MESSAGE, AnswerEngine, build_prompt, extract_citations
@@ -9,6 +10,18 @@ def test_extract_citations_splits_valid_and_invalid_and_dedupes():
     valid, invalid = extract_citations("A [S2]. B [S1][S2]. C [S9]. D [S0].", num_sources=3)
     assert valid == [2, 1]
     assert invalid == [9, 0]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Seeds matter (S3). Points move (S1, S2).", [3, 1, 2]),  # format seen from Groq
+        ("Seeds matter [S2, S4] and [S1; S3].", [2, 4, 1, 3]),
+        ("No citations, S1 mentioned bare, and k-means (k) in parentheses.", []),
+    ],
+)
+def test_extract_citations_accepts_common_formats(text: str, expected: list[int]):
+    assert extract_citations(text, num_sources=5)[0] == expected
 
 
 def test_prompt_labels_sources_with_citations(retriever: Retriever):
