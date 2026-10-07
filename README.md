@@ -1,8 +1,10 @@
-# CoursePilot
+# Back of the Book
 
-[![CI](https://github.com/RettWilson22/coursepilot/actions/workflows/ci.yml/badge.svg)](https://github.com/RettWilson22/coursepilot/actions/workflows/ci.yml)
+[![CI](https://github.com/RettWilson22/back-of-the-book/actions/workflows/ci.yml/badge.svg)](https://github.com/RettWilson22/back-of-the-book/actions/workflows/ci.yml)
 
 Ask questions about your course materials and get answers that cite the exact page they came from. Generate practice quizzes from the same materials, or use **AnyQuiz** to get a quiz on any topic at all, at **easy, medium, or hard** difficulty. And see how accurate the retrieval actually is, measured on a fixed question set instead of assumed.
+
+The name comes from the answers in the back of a textbook: every answer here tells you the page it came from, so you can check it.
 
 Works with PDFs (slides, notes, textbooks), PowerPoint decks, Markdown, and plain text. Answers come from **Groq** (free tier) or **Claude**, or from an offline mode that quotes the matching passages with no API key at all.
 
@@ -24,7 +26,7 @@ Retrieval accuracy on [OpenStax *Principles of Data Science*](https://openstax.o
 - Plain hybrid search is *worse* than embeddings alone at Recall@10. BM25 pulls in passages that share words but not meaning. Fusion only paid off once a reranker re-scored the candidates.
 - Both remaining reranker misses (out of 75) are next-page continuations of the labeled page, not wrong answers. The strict single-page metric counts them as misses anyway; I didn't relax it after seeing results.
 
-**Declining off-topic questions.** Before calling the LLM, CoursePilot checks how close the best passage is to the question and declines if nothing in the materials is close. The threshold was set on the main question set and then checked on a [held-out set](eval/heldout.jsonl) written afterwards:
+**Declining off-topic questions.** Before calling the LLM, Back of the Book checks how close the best passage is to the question and declines if nothing in the materials is close. The threshold was set on the main question set and then checked on a [held-out set](eval/heldout.jsonl) written afterwards:
 
 | Threshold | Main set: real questions kept / off-topic declined | Held-out: kept / declined |
 |---|---|---|
@@ -51,7 +53,7 @@ AnyQuiz is clearly labeled as written from general knowledge, separate from the 
 
 ## Error codes
 
-Every failure is a `CoursePilotError` ([`errors.py`](src/coursepilot/errors.py)) with a stable **code**, a **message** that's safe to show users, a **retryable** flag, and optional machine-readable **details** (such as the provider's HTTP status). The web app shows the message and the code. The CLI prints `Error [CODE]: message` and exits with the category's exit code.
+Every failure is a `BackOfTheBookError` ([`errors.py`](src/backofthebook/errors.py)) with a stable **code**, a **message** that's safe to show users, a **retryable** flag, and optional machine-readable **details** (such as the provider's HTTP status). The web app shows the message and the code. The CLI prints `Error [CODE]: message` and exits with the category's exit code.
 
 | Code | When | Retryable | CLI exit |
 |---|---|---|---|
@@ -96,15 +98,15 @@ Invalid input is rejected **before** any API call. A test checks that every code
 
 | Module | Responsibility |
 |---|---|
-| [`documents.py`](src/coursepilot/documents.py) | Loaders for each file type. Detects the printed page number from running heads, so a citation says "p. 283" like the book does, not the PDF's 293. |
-| [`chunking.py`](src/coursepilot/chunking.py) | Sentence-aware chunking with overlap, scoped to one page. |
-| [`index.py`](src/coursepilot/index.py) | Builds, saves, and loads the index (`chunks.jsonl`, `embeddings.npy`, `meta.json`). No database server. |
-| [`retrieval.py`](src/coursepilot/retrieval.py) | Four retrieval modes behind one interface, so the eval compares them on identical inputs. |
-| [`llm.py`](src/coursepilot/llm.py) | Claude, Groq, and offline providers behind one small interface. |
-| [`answer.py`](src/coursepilot/answer.py) | Off-topic check, prompt, streaming, citation validation. |
-| [`quiz.py`](src/coursepilot/quiz.py) | Course quiz and AnyQuiz, difficulty levels, validation, double-check. |
-| [`errors.py`](src/coursepilot/errors.py) | Error codes, messages, retryability, and CLI exit codes. |
-| [`evaluation.py`](src/coursepilot/evaluation.py) | Recall@k, MRR, and off-topic metrics. |
+| [`documents.py`](src/backofthebook/documents.py) | Loaders for each file type. Detects the printed page number from running heads, so a citation says "p. 283" like the book does, not the PDF's 293. |
+| [`chunking.py`](src/backofthebook/chunking.py) | Sentence-aware chunking with overlap, scoped to one page. |
+| [`index.py`](src/backofthebook/index.py) | Builds, saves, and loads the index (`chunks.jsonl`, `embeddings.npy`, `meta.json`). No database server. |
+| [`retrieval.py`](src/backofthebook/retrieval.py) | Four retrieval modes behind one interface, so the eval compares them on identical inputs. |
+| [`llm.py`](src/backofthebook/llm.py) | Claude, Groq, and offline providers behind one small interface. |
+| [`answer.py`](src/backofthebook/answer.py) | Off-topic check, prompt, streaming, citation validation. |
+| [`quiz.py`](src/backofthebook/quiz.py) | Course quiz and AnyQuiz, difficulty levels, validation, double-check. |
+| [`errors.py`](src/backofthebook/errors.py) | Error codes, messages, retryability, and CLI exit codes. |
+| [`evaluation.py`](src/backofthebook/evaluation.py) | Recall@k, MRR, and off-topic metrics. |
 | [`app/streamlit_app.py`](app/streamlit_app.py) | Web UI: chat with sources, course quiz, AnyQuiz, grading, and a plain-language About page. |
 
 ## Design decisions
@@ -118,14 +120,14 @@ Invalid input is rejected **before** any API call. A test checks that every code
 
 ## Try it
 
-**Live demo: https://coursepilot-rettwilson.streamlit.app**
+**Live demo: https://backofthebook.streamlit.app**
 
 It's preloaded with the sample textbook. Ask a question, or open **Practice quiz** and pick a topic. You can also upload your own slides or notes in the sidebar; they stay in your session only.
 
 ## Getting started
 
 ```bash
-git clone https://github.com/RettWilson22/coursepilot && cd coursepilot
+git clone https://github.com/RettWilson22/back-of-the-book && cd backofthebook
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e ".[groq,claude,app,dev]"
 ```
@@ -144,20 +146,20 @@ Then:
 
 ```bash
 streamlit run app/streamlit_app.py                       # web app
-coursepilot ask "Why can k-means give different clusters on different runs?"
-coursepilot quiz "hypothesis testing" -n 5 -d hard       # from your materials
-coursepilot anyquiz "Super Mario Galaxy" -d easy          # any topic
-coursepilot eval                                         # reproduce the table above, in seconds
+backofthebook ask "Why can k-means give different clusters on different runs?"
+backofthebook quiz "hypothesis testing" -n 5 -d hard       # from your materials
+backofthebook anyquiz "Super Mario Galaxy" -d easy          # any topic
+backofthebook eval                                         # reproduce the table above, in seconds
 ```
 
-Use your own materials with `coursepilot ingest path/to/slides/`, or upload files in the web app's sidebar.
+Use your own materials with `backofthebook ingest path/to/slides/`, or upload files in the web app's sidebar.
 
 | Setting | Default |
 |---|---|
-| `COURSEPILOT_LLM` | `groq` if `GROQ_API_KEY` is set, else `claude` if `ANTHROPIC_API_KEY` is set, else `extractive` |
-| `COURSEPILOT_GROQ_MODEL` | `openai/gpt-oss-120b` |
-| `COURSEPILOT_CLAUDE_MODEL` / `COURSEPILOT_CLAUDE_EFFORT` | `claude-opus-5-5` / `medium` |
-| `COURSEPILOT_INDEX` (web app) | your `.coursepilot/index` if you've run `ingest`, else the bundled `data/index` |
+| `BACKOFTHEBOOK_LLM` | `groq` if `GROQ_API_KEY` is set, else `claude` if `ANTHROPIC_API_KEY` is set, else `extractive` |
+| `BACKOFTHEBOOK_GROQ_MODEL` | `openai/gpt-oss-120b` |
+| `BACKOFTHEBOOK_CLAUDE_MODEL` / `BACKOFTHEBOOK_CLAUDE_EFFORT` | `claude-opus-5-5` / `medium` |
+| `BACKOFTHEBOOK_INDEX` (web app) | your `.backofthebook/index` if you've run `ingest`, else the bundled `data/index` |
 
 ### Deploy your own (Streamlit Community Cloud, free)
 

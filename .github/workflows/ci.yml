@@ -33,4 +33,4 @@ jobs:
         run: mypy src app/streamlit_app.py
 
       - name: Unit tests
-        run: pytest --cov=coursepilot --cov-report=term-missing
+        run: pytest --cov=backofthebook --cov-report=term-missing

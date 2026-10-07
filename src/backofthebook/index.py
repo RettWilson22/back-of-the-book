@@ -13,13 +13,13 @@ from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 
-from coursepilot.chunking import Chunk
+from backofthebook.chunking import Chunk
 
 if TYPE_CHECKING:
     from sentence_transformers import SentenceTransformer
 
 INDEX_FORMAT_VERSION = 1
-USER_INDEX = Path(".coursepilot/index")  # where `coursepilot ingest` writes by default
+USER_INDEX = Path(".backofthebook/index")  # where `backofthebook ingest` writes by default
 BUNDLED_INDEX = Path("data/index")  # prebuilt index of the sample textbook, shipped in the repo
 DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
@@ -117,7 +117,7 @@ class CorpusIndex:
     def load(cls, directory: Path) -> CorpusIndex:
         meta_path = directory / "meta.json"
         if not meta_path.exists():
-            raise IndexBuildError(f"no index at {directory}; run `coursepilot ingest` first")
+            raise IndexBuildError(f"no index at {directory}; run `backofthebook ingest` first")
         meta = json.loads(meta_path.read_text())
         if meta.get("format_version") != INDEX_FORMAT_VERSION:
             raise IndexBuildError("index was built by an incompatible version; rebuild it")

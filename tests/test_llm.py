@@ -12,8 +12,8 @@ import httpx2
 import pytest
 from pydantic import BaseModel
 
-from coursepilot.errors import ErrorCode
-from coursepilot.llm import (
+from backofthebook.errors import ErrorCode
+from backofthebook.llm import (
     CLAUDE_DEFAULT_MODEL,
     FALLBACK_BETA,
     ClaudeProvider,
@@ -233,11 +233,11 @@ def test_extractive_provider_cannot_make_quizzes():
         ({"GROQ_API_KEY": "g", "ANTHROPIC_API_KEY": "a"}, "groq"),
         ({"ANTHROPIC_API_KEY": "a"}, "claude"),
         ({}, "extractive"),
-        ({"GROQ_API_KEY": "g", "COURSEPILOT_LLM": "claude", "ANTHROPIC_API_KEY": "a"}, "claude"),
+        ({"GROQ_API_KEY": "g", "BACKOFTHEBOOK_LLM": "claude", "ANTHROPIC_API_KEY": "a"}, "claude"),
     ],
 )
 def test_make_provider_picks_by_available_key(monkeypatch: pytest.MonkeyPatch, env, expected):
-    for var in ("GROQ_API_KEY", "ANTHROPIC_API_KEY", "COURSEPILOT_LLM"):
+    for var in ("GROQ_API_KEY", "ANTHROPIC_API_KEY", "BACKOFTHEBOOK_LLM"):
         monkeypatch.delenv(var, raising=False)
     for key, value in env.items():
         monkeypatch.setenv(key, value)

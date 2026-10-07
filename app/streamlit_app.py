@@ -1,4 +1,4 @@
-"""CoursePilot web app: ask questions with citations, take practice quizzes, see the eval.
+"""Back of the Book web app: ask questions with citations, take practice quizzes, see the eval.
 
 Run with:  streamlit run app/streamlit_app.py
 """
@@ -15,19 +15,19 @@ from pathlib import Path
 import streamlit as st
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
-from coursepilot.answer import AnswerEngine
-from coursepilot.chunking import chunk_pages
-from coursepilot.documents import SUPPORTED_SUFFIXES, load_document
-from coursepilot.errors import CoursePilotError, ErrorCode
-from coursepilot.index import (
+from backofthebook.answer import AnswerEngine
+from backofthebook.chunking import chunk_pages
+from backofthebook.documents import SUPPORTED_SUFFIXES, load_document
+from backofthebook.errors import BackOfTheBookError, ErrorCode
+from backofthebook.index import (
     CorpusIndex,
     Embedder,
     IndexBuildError,
     SentenceTransformerEmbedder,
     default_index_dir,
 )
-from coursepilot.llm import make_provider
-from coursepilot.quiz import (
+from backofthebook.llm import make_provider
+from backofthebook.quiz import (
     MAX_QUESTIONS,
     MAX_TOPIC_CHARS,
     Difficulty,
@@ -36,19 +36,21 @@ from coursepilot.quiz import (
     generate_anyquiz,
     generate_quiz,
 )
-from coursepilot.retrieval import CrossEncoderReranker, Hit, Retriever
-from coursepilot.sample import build_sample_index
+from backofthebook.retrieval import CrossEncoderReranker, Hit, Retriever
+from backofthebook.sample import build_sample_index
 
 ROOT = Path(__file__).resolve().parents[1]
-INDEX_DIR = Path(os.environ.get("COURSEPILOT_INDEX") or default_index_dir(ROOT))
+INDEX_DIR = Path(os.environ.get("BACKOFTHEBOOK_INDEX") or default_index_dir(ROOT))
 # The repo ships a prebuilt sample index, so this only runs if it was deleted (0 to skip).
-USE_SAMPLE = os.environ.get("COURSEPILOT_SAMPLE", "1") != "0"
+USE_SAMPLE = os.environ.get("BACKOFTHEBOOK_SAMPLE", "1") != "0"
 DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 st.set_page_config(
-    page_title="CoursePilot", page_icon=str(ROOT / "app" / "static" / "favicon.png"), layout="wide"
+    page_title="Back of the Book",
+    page_icon=str(ROOT / "app" / "static" / "favicon.png"),
+    layout="wide",
 )
-logger = logging.getLogger("coursepilot.app")
+logger = logging.getLogger("backofthebook.app")
 
 STYLE = """
 <style>
@@ -56,13 +58,13 @@ STYLE = """
 header[data-testid="stHeader"], footer, [data-testid="stToolbar"] { display: none; }
 .block-container { padding-top: 0; max-width: 1100px; }
 
-.cp-masthead {
+.bb-masthead {
   background: #22313f; color: #f6f3ec; margin: 0 -100vw 1.4rem; padding: 1.1rem 100vw 1rem;
   border-bottom: 4px solid #2a6496;
 }
-.cp-brand { font-family: Georgia, "Times New Roman", serif; font-size: 2rem; font-weight: bold;
+.bb-brand { font-family: Georgia, "Times New Roman", serif; font-size: 2rem; font-weight: bold;
   letter-spacing: 0.5px; }
-.cp-tagline { font-size: 0.95rem; color: #c9d3dd; margin-top: 0.1rem; }
+.bb-tagline { font-size: 0.95rem; color: #c9d3dd; margin-top: 0.1rem; }
 
 /* Classic rectangular tabs with a rule underneath. */
 [data-testid="stTabs"] [role="tablist"] { gap: 4px; border-bottom: 1px solid #cfc6b4; }
@@ -72,27 +74,27 @@ header[data-testid="stHeader"], footer, [data-testid="stToolbar"] { display: non
 [data-testid="stTab"][aria-selected="true"] { background: #f6f3ec; color: #2a6496;
   box-shadow: inset 0 3px 0 #2a6496; }
 
-.cp-mark { display: inline-block; padding: 0 0.45rem; border: 1px solid; font-size: 0.8rem;
+.bb-mark { display: inline-block; padding: 0 0.45rem; border: 1px solid; font-size: 0.8rem;
   font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; margin-right: 0.4rem; }
-.cp-right { color: #2e6b30; background: #e6f2e4; border-color: #9cc49a; }
-.cp-wrong { color: #8c2a24; background: #f7e4e1; border-color: #d9a29b; }
+.bb-right { color: #2e6b30; background: #e6f2e4; border-color: #9cc49a; }
+.bb-wrong { color: #8c2a24; background: #f7e4e1; border-color: #d9a29b; }
 
-.cp-footer { margin-top: 3rem; padding: 1rem 0; border-top: 1px solid #cfc6b4;
+.bb-footer { margin-top: 3rem; padding: 1rem 0; border-top: 1px solid #cfc6b4;
   font-size: 0.85rem; color: #6b6458; }
 </style>
 """
 
 MASTHEAD = """
-<div class="cp-masthead">
-  <div class="cp-brand">CoursePilot</div>
-  <div class="cp-tagline">Answers with sources, practice quizzes, and a quiz on anything.</div>
+<div class="bb-masthead">
+  <div class="bb-brand">Back of the Book</div>
+  <div class="bb-tagline">Answers with sources, practice quizzes, and a quiz on anything.</div>
 </div>
 """
 
 FOOTER = """
-<div class="cp-footer">
-  CoursePilot, built by Rett Wilson &middot;
-  <a href="https://github.com/RettWilson22/coursepilot">Source code on GitHub</a> &middot;
+<div class="bb-footer">
+  Back of the Book, built by Rett Wilson &middot;
+  <a href="https://github.com/RettWilson22/back-of-the-book">Source code on GitHub</a> &middot;
   Sample textbook: OpenStax <i>Principles of Data Science</i> (CC BY-NC-SA 4.0) &middot;
   AnyQuiz text from Wikipedia (CC BY-SA 4.0)
 </div>
@@ -190,7 +192,7 @@ index: CorpusIndex | None = st.session_state.index
 if index is None:
     st.info(
         "No course materials loaded yet. Upload files in the sidebar, or build the sample "
-        "index with `python scripts/download_corpus.py && coursepilot ingest data/corpus`."
+        "index with `python scripts/download_corpus.py && backofthebook ingest data/corpus`."
     )
     st.stop()
 
@@ -216,7 +218,7 @@ retriever = Retriever(index, embedder, reranker)
 engine = AnswerEngine(retriever, llm)
 
 
-def show_error(error: CoursePilotError) -> None:
+def show_error(error: BackOfTheBookError) -> None:
     hint = " Trying again may work." if error.retryable else ""
     (st.info if error.code in _INPUT_ERRORS else st.error)(error.message + hint)
     st.caption(f"Error code: `{error.code}`")
@@ -226,20 +228,20 @@ def guarded(action: Callable[[], Quiz]) -> Quiz | None:
     """Run a quiz request, turning every failure into a coded, user-facing message."""
     try:
         return action()
-    except CoursePilotError as e:
+    except BackOfTheBookError as e:
         logger.info("quiz request failed: %r", e)
         show_error(e)
     except Exception:
         logger.exception("unexpected error while generating a quiz")
         show_error(
-            CoursePilotError(
+            BackOfTheBookError(
                 ErrorCode.INTERNAL_ERROR, "Something went wrong on our side. Please try again."
             )
         )
     return None
 
 
-REPORT_URL = "https://github.com/RettWilson22/coursepilot/issues/new"
+REPORT_URL = "https://github.com/RettWilson22/back-of-the-book/issues/new"
 
 
 def report_link(quiz: Quiz, question: QuizQuestion) -> str:
@@ -311,9 +313,9 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
         for i, (pick, q) in enumerate(pairs, start=1):
             correct = q.choices[q.answer_index]
             mark = (
-                '<span class="cp-mark cp-right">Correct</span>'
+                '<span class="bb-mark bb-right">Correct</span>'
                 if pick == correct
-                else '<span class="cp-mark cp-wrong">Incorrect</span>'
+                else '<span class="bb-mark bb-wrong">Incorrect</span>'
             )
             st.markdown(
                 f"{mark} **{i}.** Answer: *{correct}*. {q.explanation}", unsafe_allow_html=True
@@ -350,7 +352,7 @@ with ask_tab:
             answer, tokens = engine.stream(question)
             try:
                 st.write_stream(tokens)
-            except CoursePilotError as e:
+            except BackOfTheBookError as e:
                 show_error(e)
             else:
                 render_sources(answer.cited_hits)
@@ -423,7 +425,7 @@ knew in advance:
 - Scanned PDFs (pictures of pages) can't be read.
 
 The full test results and method are in the
-[project README](https://github.com/RettWilson22/coursepilot#results).
+[project README](https://github.com/RettWilson22/back-of-the-book#results).
 """
     )
 

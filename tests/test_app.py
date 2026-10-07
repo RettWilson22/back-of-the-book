@@ -8,9 +8,9 @@ import pytest
 from conftest import TOY_PAGES, FakeEmbedder, FakeLLM, FakeReranker, FakeWikipedia
 from streamlit.testing.v1 import AppTest
 
-from coursepilot.chunking import chunk_pages
-from coursepilot.index import CorpusIndex
-from coursepilot.quiz import AnswerSheet, QuizDraft, QuizQuestion
+from backofthebook.chunking import chunk_pages
+from backofthebook.index import CorpusIndex
+from backofthebook.quiz import AnswerSheet, QuizDraft, QuizQuestion
 
 APP = str(Path(__file__).resolve().parents[1] / "app" / "streamlit_app.py")
 
@@ -20,16 +20,16 @@ def app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     def start(llm: FakeLLM) -> AppTest:
         index_dir = tmp_path / "index"
         CorpusIndex.build(chunk_pages(TOY_PAGES), FakeEmbedder()).save(index_dir)
-        monkeypatch.setenv("COURSEPILOT_INDEX", str(index_dir))
-        monkeypatch.setenv("COURSEPILOT_SAMPLE", "0")
+        monkeypatch.setenv("BACKOFTHEBOOK_INDEX", str(index_dir))
+        monkeypatch.setenv("BACKOFTHEBOOK_SAMPLE", "0")
 
         class Embedder(FakeEmbedder):
             def __init__(self, model_name: str = "") -> None:
                 self.model_name = "fake-embedder"
 
-        monkeypatch.setattr("coursepilot.index.SentenceTransformerEmbedder", Embedder)
-        monkeypatch.setattr("coursepilot.retrieval.CrossEncoderReranker", FakeReranker)
-        monkeypatch.setattr("coursepilot.llm.make_provider", lambda name=None: llm)
+        monkeypatch.setattr("backofthebook.index.SentenceTransformerEmbedder", Embedder)
+        monkeypatch.setattr("backofthebook.retrieval.CrossEncoderReranker", FakeReranker)
+        monkeypatch.setattr("backofthebook.llm.make_provider", lambda name=None: llm)
         at = AppTest.from_file(APP, default_timeout=30)
         at.run()
         assert not at.exception, at.exception
@@ -122,7 +122,7 @@ GALAXY = (
 
 def test_anyquiz_writes_from_wikipedia_checks_and_grades(app, monkeypatch):
     monkeypatch.setattr(
-        "coursepilot.wiki._fetch_json", FakeWikipedia({"Super Mario Galaxy": GALAXY})
+        "backofthebook.wiki._fetch_json", FakeWikipedia({"Super Mario Galaxy": GALAXY})
     )
     star = kmeans_question(
         question="What do you collect in Super Mario Galaxy to unlock new galaxies?",
@@ -143,11 +143,11 @@ def test_anyquiz_writes_from_wikipedia_checks_and_grades(app, monkeypatch):
     assert any(s.value == "Score: 1 / 1" for s in at.subheader)
     source = next(c.value for c in at.caption if c.value.startswith("Source:"))
     assert "Super_Mario_Galaxy#Gameplay" in source
-    assert "github.com/RettWilson22/coursepilot/issues/new" in source
+    assert "github.com/RettWilson22/back-of-the-book/issues/new" in source
 
 
 def test_anyquiz_unknown_topic_shows_source_not_found(app, monkeypatch):
-    monkeypatch.setattr("coursepilot.wiki._fetch_json", FakeWikipedia({}))
+    monkeypatch.setattr("backofthebook.wiki._fetch_json", FakeWikipedia({}))
     at = app(quiz_llm([]))
     at.text_input[1].set_value("asdfghjkl")
     at.button[1].click().run()
@@ -159,7 +159,7 @@ def test_anyquiz_unknown_topic_shows_source_not_found(app, monkeypatch):
 
 def test_anyquiz_shows_retryable_error_code_when_nothing_usable_comes_back(app, monkeypatch):
     monkeypatch.setattr(
-        "coursepilot.wiki._fetch_json", FakeWikipedia({"Super Mario Galaxy": GALAXY})
+        "backofthebook.wiki._fetch_json", FakeWikipedia({"Super Mario Galaxy": GALAXY})
     )
     at = app(quiz_llm([]))
     at.text_input[1].set_value("mario galaxy")
@@ -174,7 +174,7 @@ def test_unexpected_errors_are_reported_as_internal_errors(app, monkeypatch):
     def boom(*args, **kwargs):
         raise RuntimeError("bug")
 
-    monkeypatch.setattr("coursepilot.quiz.generate_anyquiz", boom)
+    monkeypatch.setattr("backofthebook.quiz.generate_anyquiz", boom)
     at = app(FakeLLM())
     at.text_input[1].set_value("photosynthesis")
     at.button[1].click().run()

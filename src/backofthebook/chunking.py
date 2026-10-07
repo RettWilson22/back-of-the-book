@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from coursepilot.documents import Page
+from backofthebook.documents import Page
 
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
 

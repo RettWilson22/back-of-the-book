@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from conftest import FakeEmbedder, make_pdf
 
-from coursepilot import sample
+from backofthebook import sample
 
 
 def fake_download(content_from: Path):

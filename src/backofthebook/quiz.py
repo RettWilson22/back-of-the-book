@@ -9,7 +9,7 @@ question, its choices (not the answer key), and its cited passages to the model 
 asks which choice the passages support. Questions whose answer key doesn't match, or that
 the passages don't clearly support, are dropped. So are malformed and repeated questions.
 
-Every failure raises a `CoursePilotError` with an error code (see `errors.py`).
+Every failure raises a `BackOfTheBookError` with an error code (see `errors.py`).
 """
 
 from __future__ import annotations
@@ -19,10 +19,10 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-from coursepilot.errors import CoursePilotError, ErrorCode
-from coursepilot.llm import LLMProvider
-from coursepilot.retrieval import DEFAULT_MIN_SIMILARITY, Mode, Retriever
-from coursepilot.wiki import Passage, WikipediaSource, article_passages
+from backofthebook.errors import BackOfTheBookError, ErrorCode
+from backofthebook.llm import LLMProvider
+from backofthebook.retrieval import DEFAULT_MIN_SIMILARITY, Mode, Retriever
+from backofthebook.wiki import Passage, WikipediaSource, article_passages
 
 MAX_TOPIC_CHARS = 200
 MIN_QUESTIONS, MAX_QUESTIONS = 1, 10
@@ -105,7 +105,7 @@ class Quiz:
         return [self.passages[n - 1] for n in _source_numbers(question)]
 
 
-class TopicNotCovered(CoursePilotError):
+class TopicNotCovered(BackOfTheBookError):
     def __init__(self, topic: str) -> None:
         super().__init__(
             ErrorCode.TOPIC_NOT_COVERED,
@@ -119,15 +119,15 @@ def check_request(topic: str, n: int, difficulty: Difficulty | str) -> tuple[str
     """Validate and normalize a quiz request, raising a coded error for bad input."""
     topic = " ".join(topic.split())
     if not topic:
-        raise CoursePilotError(ErrorCode.EMPTY_TOPIC, "Enter a topic to be quizzed on.")
+        raise BackOfTheBookError(ErrorCode.EMPTY_TOPIC, "Enter a topic to be quizzed on.")
     if len(topic) > MAX_TOPIC_CHARS:
-        raise CoursePilotError(
+        raise BackOfTheBookError(
             ErrorCode.TOPIC_TOO_LONG,
             f"Keep the topic under {MAX_TOPIC_CHARS} characters.",
             details={"length": len(topic)},
         )
     if not MIN_QUESTIONS <= n <= MAX_QUESTIONS:
-        raise CoursePilotError(
+        raise BackOfTheBookError(
             ErrorCode.INVALID_QUESTION_COUNT,
             f"Ask for between {MIN_QUESTIONS} and {MAX_QUESTIONS} questions.",
             details={"requested": n},
@@ -135,7 +135,7 @@ def check_request(topic: str, n: int, difficulty: Difficulty | str) -> tuple[str
     try:
         level = Difficulty(str(difficulty).lower())
     except ValueError:
-        raise CoursePilotError(
+        raise BackOfTheBookError(
             ErrorCode.INVALID_DIFFICULTY,
             "Difficulty must be easy, medium, or hard.",
             details={"difficulty": str(difficulty)},
@@ -226,7 +226,7 @@ def _quiz_from_passages(
     )
     valid = _keep_valid(draft.questions, len(passages))
     if not valid:
-        raise CoursePilotError(
+        raise BackOfTheBookError(
             ErrorCode.NO_VALID_QUESTIONS,
             f'Couldn\'t write usable questions about "{topic}" from {source_title}. '
             "Try a more specific topic, or try again.",
@@ -238,7 +238,7 @@ def _quiz_from_passages(
         kept, checked = source_check(llm, valid, passages)
         failed = len(valid) - len(kept)
         if not kept:
-            raise CoursePilotError(
+            raise BackOfTheBookError(
                 ErrorCode.NO_VALID_QUESTIONS,
                 f'None of the questions about "{topic}" passed the source check, so none were '
                 "shown. Try again or try a more specific topic.",

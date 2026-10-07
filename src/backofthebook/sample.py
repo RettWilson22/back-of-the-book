@@ -11,9 +11,9 @@ import hashlib
 import urllib.request
 from pathlib import Path
 
-from coursepilot.chunking import chunk_pages
-from coursepilot.documents import load_document
-from coursepilot.index import CorpusIndex, Embedder
+from backofthebook.chunking import chunk_pages
+from backofthebook.documents import load_document
+from backofthebook.index import CorpusIndex, Embedder
 
 URL = "https://assets.openstax.org/oscms-prodcms/media/documents/Principles-of-Data-Science-WEB.pdf"
 SHA256 = "6b47205459a2f4e25a2b2a86369e674a26a5ae566a4cc428dd31047670692398"

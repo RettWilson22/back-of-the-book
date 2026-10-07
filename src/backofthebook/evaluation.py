@@ -19,7 +19,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from coursepilot.retrieval import Hit, Mode, Retriever
+from backofthebook.retrieval import Hit, Mode, Retriever
 
 KS = (1, 3, 5, 10)
 

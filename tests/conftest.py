@@ -9,10 +9,10 @@ import numpy as np
 import pytest
 from pydantic import BaseModel
 
-from coursepilot.chunking import Chunk, chunk_pages
-from coursepilot.documents import Page
-from coursepilot.index import CorpusIndex
-from coursepilot.retrieval import Retriever, tokenize
+from backofthebook.chunking import Chunk, chunk_pages
+from backofthebook.documents import Page
+from backofthebook.index import CorpusIndex
+from backofthebook.retrieval import Retriever, tokenize
 
 
 class FakeEmbedder:
@@ -80,7 +80,7 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     def blocked(params: dict[str, str]) -> dict[str, Any]:
         raise AssertionError(f"unit test tried to call Wikipedia: {params}")
 
-    monkeypatch.setattr("coursepilot.wiki._fetch_json", blocked)
+    monkeypatch.setattr("backofthebook.wiki._fetch_json", blocked)
 
 
 class FakeWikipedia:

@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from conftest import make_pdf, make_pptx
 
-from coursepilot.documents import (
+from backofthebook.documents import (
     UnsupportedFileError,
     clean_text,
     detect_page_offset,

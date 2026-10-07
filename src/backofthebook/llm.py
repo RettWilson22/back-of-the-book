@@ -15,7 +15,7 @@ from typing import Any, Protocol, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from coursepilot.errors import CoursePilotError, ErrorCode
+from backofthebook.errors import BackOfTheBookError, ErrorCode
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -26,7 +26,7 @@ GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b"
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 
-class LLMError(CoursePilotError):
+class LLMError(BackOfTheBookError):
     """A provider failure, with an error code and a message that is safe to show to the user."""
 
 
@@ -256,7 +256,7 @@ class ExtractiveProvider:
 
 def make_provider(name: str | None = None) -> LLMProvider:
     """Pick a provider by name, or by whichever API key is set (Groq first, then Claude)."""
-    name = (name or os.environ.get("COURSEPILOT_LLM") or "").lower()
+    name = (name or os.environ.get("BACKOFTHEBOOK_LLM") or "").lower()
     if not name:
         if os.environ.get("GROQ_API_KEY"):
             name = "groq"
@@ -266,11 +266,11 @@ def make_provider(name: str | None = None) -> LLMProvider:
             name = "extractive"
     if name == "claude":
         return ClaudeProvider(
-            model=os.environ.get("COURSEPILOT_CLAUDE_MODEL", CLAUDE_DEFAULT_MODEL),
-            effort=os.environ.get("COURSEPILOT_CLAUDE_EFFORT", "medium"),
+            model=os.environ.get("BACKOFTHEBOOK_CLAUDE_MODEL", CLAUDE_DEFAULT_MODEL),
+            effort=os.environ.get("BACKOFTHEBOOK_CLAUDE_EFFORT", "medium"),
         )
     if name == "groq":
-        return GroqProvider(model=os.environ.get("COURSEPILOT_GROQ_MODEL", GROQ_DEFAULT_MODEL))
+        return GroqProvider(model=os.environ.get("BACKOFTHEBOOK_GROQ_MODEL", GROQ_DEFAULT_MODEL))
     if name == "extractive":
         return ExtractiveProvider()
     raise ValueError(f"unknown LLM provider {name!r} (use claude, groq, or extractive)")
