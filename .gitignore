@@ -8,3 +8,4 @@ data/corpus/*.pdf
 .ruff_cache/
 .coverage
 *.egg-info/
+eval/anyquiz/articles/

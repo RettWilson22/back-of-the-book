@@ -70,21 +70,18 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
 def print_quiz(quiz: Quiz) -> None:
     print(f"{quiz.topic} ({quiz.difficulty.value})")
-    if not quiz.grounded:
-        checked = ", double-checked" if quiz.checked else ""
-        print(f"Written by AI from general knowledge{checked}.")
+    checked = "; every answer checked against its source" if quiz.checked else ""
+    print(f"Written from {quiz.source_title}{checked}.")
     for i, q in enumerate(quiz.questions, start=1):
         print(f"\n{i}. {q.question}")
         for letter, choice in zip("ABCD", q.choices, strict=True):
             print(f"   {letter}) {choice}")
-        source = ""
-        if quiz.grounded:
-            source = " (" + ", ".join(h.chunk.citation for h in quiz.sources_for(q)) + ")"
-        print(f"   Answer: {'ABCD'[q.answer_index]}. {q.explanation}{source}")
+        sources = ", ".join(dict.fromkeys(p.citation for p in quiz.sources_for(q)))
+        print(f"   Answer: {'ABCD'[q.answer_index]}. {q.explanation} ({sources})")
     if quiz.dropped or quiz.failed_check:
         print(
             f"\n(left out {quiz.dropped} malformed or repeated question(s) and "
-            f"{quiz.failed_check} that failed the double-check)"
+            f"{quiz.failed_check} that failed the source check)"
         )
 
 
@@ -104,7 +101,7 @@ def cmd_anyquiz(args: argparse.Namespace) -> int:
     from coursepilot.quiz import generate_anyquiz
 
     quiz = generate_anyquiz(
-        make_provider(args.llm), args.topic, args.n, args.difficulty, verify=not args.no_check
+        make_provider(args.llm), args.topic, args.n, args.difficulty, check=not args.no_check
     )
     print_quiz(quiz)
     return 0
@@ -162,17 +159,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     for name, func, help_text in [
         ("quiz", cmd_quiz, "practice quiz written only from your course materials"),
-        ("anyquiz", cmd_anyquiz, "quiz on any topic, written from the AI's general knowledge"),
+        ("anyquiz", cmd_anyquiz, "quiz on any topic, written from its Wikipedia article"),
     ]:
         p = sub.add_parser(name, help=help_text)
         p.add_argument("topic")
         p.add_argument("-n", type=int, default=5, help="number of questions (1-10)")
         p.add_argument("-d", "--difficulty", default="medium", help="easy, medium, or hard")
         p.add_argument("--llm", choices=["claude", "groq"])
-        if name == "anyquiz":
-            p.add_argument(
-                "--no-check", action="store_true", help="skip the answer double-check pass"
-            )
+        p.add_argument(
+            "--no-check", action="store_true", help="skip checking answers against sources"
+        )
         p.set_defaults(func=func)
 
     p = sub.add_parser("eval", help="measure retrieval accuracy on a labeled question set")

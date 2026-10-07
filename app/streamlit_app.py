@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+import urllib.parse
 from collections.abc import Callable
 from pathlib import Path
 
@@ -31,6 +32,7 @@ from coursepilot.quiz import (
     MAX_TOPIC_CHARS,
     Difficulty,
     Quiz,
+    QuizQuestion,
     generate_anyquiz,
     generate_quiz,
 )
@@ -53,6 +55,7 @@ _INPUT_ERRORS = {
     ErrorCode.INVALID_QUESTION_COUNT,
     ErrorCode.INVALID_DIFFICULTY,
     ErrorCode.TOPIC_NOT_COVERED,
+    ErrorCode.SOURCE_NOT_FOUND,
 }
 
 
@@ -183,6 +186,32 @@ def guarded(action: Callable[[], Quiz]) -> Quiz | None:
     return None
 
 
+REPORT_URL = "https://github.com/RettWilson22/coursepilot/issues/new"
+
+
+def report_link(quiz: Quiz, question: QuizQuestion) -> str:
+    """A pre-filled GitHub issue for reporting a wrong or unclear question."""
+    choices = "\n".join(f"- {c}" for c in question.choices)
+    sources = "\n".join(f"- {p.citation} {p.url or ''}" for p in quiz.sources_for(question))
+    body = (
+        f"**Topic:** {quiz.topic} ({quiz.difficulty.value})\n\n"
+        f"**Question:** {question.question}\n\n**Choices:**\n{choices}\n\n"
+        f"**Answer key:** {question.choices[question.answer_index]}\n\n"
+        f"**Sources:**\n{sources}\n\n**What's wrong:** "
+    )
+    query = urllib.parse.urlencode(
+        {"title": f"Quiz problem: {question.question[:80]}", "body": body}
+    )
+    return f"{REPORT_URL}?{query}"
+
+
+def source_links(quiz: Quiz, question: QuizQuestion) -> str:
+    links = []
+    for passage in quiz.sources_for(question):
+        links.append(f"[{passage.citation}]({passage.url})" if passage.url else passage.citation)
+    return ", ".join(dict.fromkeys(links))  # de-duplicate, keep order
+
+
 def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficulty], Quiz]) -> None:
     """Form, quiz, and grading. `key` keeps each tab's quiz state separate."""
     with st.form(f"{key}_form"):
@@ -193,7 +222,7 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
         count = st.slider("Number of questions", 3, MAX_QUESTIONS, 5)
         submitted = st.form_submit_button("Generate quiz")
     if submitted:
-        with st.spinner("Writing your quiz..."):
+        with st.spinner("Reading the sources and writing your quiz..."):
             quiz = guarded(lambda: generate(topic, count, Difficulty(level.lower())))
         if quiz is not None:
             st.session_state[f"{key}_quiz"] = quiz
@@ -205,11 +234,13 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
         return
     quiz_id = st.session_state[f"{key}_id"]
     st.subheader(f"{quiz.topic} · {quiz.difficulty.value.title()}")
-    if not quiz.grounded:
-        note = "Written by AI from general knowledge, not from your course materials."
-        if quiz.checked:
-            note += " Answers were double-checked by a second, independent pass."
-        st.caption(note)
+    source = f"[{quiz.source_title}]({quiz.source_url})" if quiz.source_url else quiz.source_title
+    note = f"Written from {source}."
+    if quiz.checked:
+        note += " Every answer was checked against its source passage."
+    if quiz.source_url:
+        note += " Wikipedia text is available under CC BY-SA 4.0."
+    st.caption(note)
     picks = [
         st.radio(f"**{i}. {q.question}**", q.choices, index=None, key=f"{key}_{quiz_id}_q{i}")
         for i, q in enumerate(quiz.questions, start=1)
@@ -224,13 +255,14 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
             correct = q.choices[q.answer_index]
             mark = "✅" if pick == correct else "❌"
             st.markdown(f"{mark} **{i}.** Correct answer: *{correct}*. {q.explanation}")
-            if quiz.grounded:
-                st.caption("Source: " + ", ".join(h.chunk.citation for h in quiz.sources_for(q)))
+            st.caption(
+                f"Source: {source_links(quiz, q)} · [Report a problem]({report_link(quiz, q)})"
+            )
     removed = []
     if quiz.dropped:
         removed.append(f"{quiz.dropped} malformed or repeated")
     if quiz.failed_check:
-        removed.append(f"{quiz.failed_check} whose answer the double-check disagreed with")
+        removed.append(f"{quiz.failed_check} whose answer didn't match its source")
     if removed:
         st.caption("Left out " + " and ".join(removed) + " question(s).")
 
@@ -281,17 +313,14 @@ with course_tab:
     )
 
 with anyquiz_tab:
-    st.markdown("**Any topic you like.** The AI writes the quiz from what it knows.")
-    double_check = st.toggle(
-        "Double-check answers",
-        value=True,
-        help="A second pass answers each question without seeing the answer key. Questions "
-        "where the two disagree are left out. Takes a little longer.",
+    st.markdown(
+        "**Any topic you like.** AnyQuiz looks the topic up on Wikipedia and writes the quiz "
+        "from that article, so every answer comes with a source you can check."
     )
     quiz_tab(
         "anyquiz",
         "e.g. Super Mario Galaxy, the French Revolution, photosynthesis",
-        lambda topic, n, level: generate_anyquiz(llm, topic, n, level, verify=double_check),
+        lambda topic, n, level: generate_anyquiz(llm, topic, n, level),
     )
 
 # --- Evaluation ----------------------------------------------------------------------------

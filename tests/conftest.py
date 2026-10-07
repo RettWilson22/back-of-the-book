@@ -73,6 +73,40 @@ TOY_PAGES = [
 ]
 
 
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unit tests must never call Wikipedia; tests that need it pass a fake source."""
+
+    def blocked(params: dict[str, str]) -> dict[str, Any]:
+        raise AssertionError(f"unit test tried to call Wikipedia: {params}")
+
+    monkeypatch.setattr("coursepilot.wiki._fetch_json", blocked)
+
+
+class FakeWikipedia:
+    """Serves articles from a dict instead of the network, in the API's response shape."""
+
+    def __init__(self, articles: dict[str, str], disambiguation: tuple[str, ...] = ()) -> None:
+        self.articles = articles
+        self.disambiguation = disambiguation
+        self.calls: list[dict[str, str]] = []
+
+    def __call__(self, params: dict[str, str]) -> dict[str, Any]:
+        self.calls.append(params)
+        if params.get("list") == "search":
+            query = params["srsearch"].lower()
+            hits = [t for t in [*self.disambiguation, *self.articles] if query in t.lower()]
+            return {"query": {"search": [{"title": t} for t in hits]}}
+        title = params["titles"]
+        if title in self.disambiguation:
+            return {"query": {"pages": [{"title": title, "pageprops": {"disambiguation": ""}}]}}
+        if title not in self.articles:
+            return {"query": {"pages": [{"title": title, "missing": True}]}}
+        url = "https://en.wikipedia.org/wiki/" + title.replace(" ", "_")
+        page = {"title": title, "fullurl": url, "extract": self.articles[title]}
+        return {"query": {"pages": [page]}}
+
+
 @pytest.fixture
 def chunks() -> list[Chunk]:
     return chunk_pages(TOY_PAGES)

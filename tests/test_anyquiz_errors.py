@@ -1,13 +1,15 @@
-import pytest
-from conftest import FakeLLM, make_pdf
+import urllib.error
 
-from coursepilot import cli
+import pytest
+from conftest import FakeLLM, FakeWikipedia, make_pdf
+
+from coursepilot import cli, wiki
 from coursepilot.errors import CATALOG, CoursePilotError, ErrorCode
 from coursepilot.quiz import (
-    ANYQUIZ_SYSTEM_PROMPT,
     DIFFICULTY_GUIDE,
     MAX_QUESTIONS,
     MAX_TOPIC_CHARS,
+    WRITE_SYSTEM_PROMPT,
     AnswerSheet,
     Difficulty,
     QuizDraft,
@@ -15,19 +17,46 @@ from coursepilot.quiz import (
     check_request,
     generate_anyquiz,
 )
+from coursepilot.wiki import Article, WikipediaSource, article_passages
+
+REAL_FETCH = wiki._fetch_json  # captured before the autouse no_network fixture replaces it
+
+GALAXY = """Super Mario Galaxy is a 2007 platform game developed by Nintendo for the Wii.
+
+== Gameplay ==
+The player collects Power Stars to unlock new galaxies. Each galaxy contains several planets.
+
+== Development ==
+The game was developed by Nintendo EAD Tokyo after the release of Donkey Kong Jungle Beat.
+
+== References ==
+1. A citation that should never become a quiz passage.
+"""
 
 
-def q(text: str, answer: int = 0, choices=("Alpha", "Beta", "Gamma", "Delta")) -> QuizQuestion:
+def q(text: str, answer: int = 0, sources=("S1",), choices=("Alpha", "Beta", "Gamma", "Delta")):
     return QuizQuestion(
-        question=text, choices=list(choices), answer_index=answer, explanation="Because."
+        question=text,
+        choices=list(choices),
+        answer_index=answer,
+        explanation="Because.",
+        sources=list(sources),
     )
 
 
 def llm_for(questions: list[QuizQuestion], answers: list[int] | None = None) -> FakeLLM:
-    sheet = AnswerSheet(
-        answers=answers if answers is not None else [x.answer_index for x in questions]
+    keys = answers if answers is not None else [x.answer_index for x in questions]
+    return FakeLLM(
+        structured={
+            QuizDraft: QuizDraft(questions=questions),
+            AnswerSheet: AnswerSheet(answers=keys),
+        }
     )
-    return FakeLLM(structured={QuizDraft: QuizDraft(questions=questions), AnswerSheet: sheet})
+
+
+@pytest.fixture
+def wikipedia() -> WikipediaSource:
+    return WikipediaSource(FakeWikipedia({"Super Mario Galaxy": GALAXY}))
 
 
 # --- Error catalog ---------------------------------------------------------------------------
@@ -82,90 +111,163 @@ def test_check_request_rejects_bad_input(topic, n, difficulty, code):
     assert raised.value.code is code
 
 
-def test_invalid_input_never_reaches_the_llm():
+def test_invalid_input_never_reaches_wikipedia_or_the_llm():
+    fake = FakeWikipedia({})
     llm = llm_for([q("Unused?")])
     with pytest.raises(CoursePilotError):
-        generate_anyquiz(llm, "", 5, "easy")
-    assert llm.prompts == []
+        generate_anyquiz(llm, "", 5, "easy", source=WikipediaSource(fake))
+    assert fake.calls == [] and llm.prompts == []
+
+
+# --- Wikipedia source ------------------------------------------------------------------------
+
+
+def test_article_sections_split_on_headings():
+    article = Article("T", "https://w/T", GALAXY)
+    assert [name for name, _ in article.sections()] == ["", "Gameplay", "Development", "References"]
+
+
+def test_passages_skip_reference_sections_and_link_to_their_section():
+    passages = article_passages(Article("Super Mario Galaxy", "https://w/SMG", GALAXY))
+
+    assert [p.citation for p in passages] == [
+        "Wikipedia: Super Mario Galaxy",
+        "Wikipedia: Super Mario Galaxy § Gameplay",
+        "Wikipedia: Super Mario Galaxy § Development",
+    ]
+    assert passages[1].url == "https://w/SMG#Gameplay"
+    assert all("citation that should never" not in p.text for p in passages)
+
+
+def test_passages_cover_every_section_before_going_deeper():
+    long_intro = " ".join(f"Intro sentence {i}." for i in range(200))
+    text = (
+        f"{long_intro}\n\n== A ==\nSection A text here, five words."
+        "\n\n== B ==\nSection B text, five more."
+    )
+    passages = article_passages(Article("T", "u", text), limit=3)
+    assert [p.citation for p in passages] == [
+        "Wikipedia: T",
+        "Wikipedia: T § A",
+        "Wikipedia: T § B",
+    ]
+
+
+def test_find_article_skips_disambiguation_pages():
+    fake = FakeWikipedia(
+        {"Mercury (planet)": "Mercury is the closest planet to the Sun."},
+        disambiguation=("Mercury",),
+    )
+    assert WikipediaSource(fake).find_article("mercury").title == "Mercury (planet)"
+
+
+def test_unknown_topic_raises_source_not_found():
+    with pytest.raises(CoursePilotError) as raised:
+        WikipediaSource(FakeWikipedia({})).find_article("asdfghjkl")
+    assert raised.value.code is ErrorCode.SOURCE_NOT_FOUND
+    assert not raised.value.retryable
+
+
+def test_network_failure_raises_source_unavailable(monkeypatch):
+    def offline(*args, **kwargs):
+        raise urllib.error.URLError("no network")
+
+    monkeypatch.setattr(wiki.urllib.request, "urlopen", offline)
+    with pytest.raises(CoursePilotError) as raised:
+        REAL_FETCH({"action": "query"})
+    assert raised.value.code is ErrorCode.SOURCE_UNAVAILABLE
+    assert raised.value.retryable
 
 
 # --- AnyQuiz generation ----------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("level", list(Difficulty))
-def test_anyquiz_prompt_includes_the_difficulty_guide(level: Difficulty):
-    llm = llm_for([q("What is the capital of France?")])
-    generate_anyquiz(llm, "geography", 3, level)
+def test_anyquiz_writes_from_the_wikipedia_article_at_the_chosen_difficulty(wikipedia, level):
+    llm = llm_for([q("What unlocks new galaxies?", sources=["S2"])])
+    quiz = generate_anyquiz(llm, "mario galaxy", 1, level, source=wikipedia)
 
     system, user = llm.prompts[0]
-    assert system == ANYQUIZ_SYSTEM_PROMPT
+    assert system == WRITE_SYSTEM_PROMPT
     assert DIFFICULTY_GUIDE[level] in user
-    assert "Topic: geography" in user
+    assert "[S2] (Wikipedia: Super Mario Galaxy § Gameplay)" in user
+    assert "collects Power Stars" in user
+    assert quiz.source_title == "Wikipedia: Super Mario Galaxy"
+    assert quiz.source_url == "https://en.wikipedia.org/wiki/Super_Mario_Galaxy"
+    assert quiz.sources_for(quiz.questions[0])[0].citation.endswith("§ Gameplay")
 
 
-def test_anyquiz_trims_to_the_requested_number_of_questions():
-    questions = [q(f"Question {i}?") for i in range(7)]
-    quiz = generate_anyquiz(llm_for(questions), "trivia", 5, "medium")
+def test_source_check_drops_questions_their_passages_do_not_support(wikipedia):
+    questions = [q("Supported?", answer=1), q("Wrong key?", answer=2), q("Unsupported?", answer=0)]
+    quiz = generate_anyquiz(
+        llm_for(questions, answers=[1, 3, -1]), "galaxy", 3, "easy", source=wikipedia
+    )
 
-    assert len(quiz.questions) == 5
-    assert quiz.checked and quiz.failed_check == 0
-
-
-def test_anyquiz_asks_for_spares_only_when_checking():
-    llm = llm_for([q("Only one?")])
-    generate_anyquiz(llm, "trivia", 5, "medium", verify=True)
-    generate_anyquiz(llm, "trivia", 5, "medium", verify=False)
-    assert "Write 7 questions." in llm.prompts[0][1]
-    assert "Write 5 questions." in llm.prompts[2][1]
-
-
-def test_self_check_drops_questions_with_a_disputed_answer_key():
-    questions = [q("Agreed?", answer=1), q("Disputed?", answer=2), q("Also agreed?", answer=0)]
-    quiz = generate_anyquiz(llm_for(questions, answers=[1, 3, 0]), "trivia", 3, "easy")
-
-    assert [x.question for x in quiz.questions] == ["Agreed?", "Also agreed?"]
-    assert quiz.failed_check == 1
+    assert [x.question for x in quiz.questions] == ["Supported?"]
+    assert quiz.failed_check == 2
     assert quiz.checked
-    assert not quiz.grounded
 
 
-def test_self_check_hides_the_answer_key_from_the_checker():
-    llm = llm_for([q("Which is first?", answer=0)])
-    generate_anyquiz(llm, "trivia", 1, "easy")
-    _, verify_prompt = llm.prompts[1]
-    assert "Which is first?" in verify_prompt
-    assert "Because." not in verify_prompt and "answer_index" not in verify_prompt
+def test_source_check_shows_passages_but_hides_the_answer_key(wikipedia):
+    llm = llm_for([q("What unlocks new galaxies?", answer=0, sources=["S2"])])
+    generate_anyquiz(llm, "galaxy", 1, "easy", source=wikipedia)
+
+    _, check_prompt = llm.prompts[1]
+    assert "What unlocks new galaxies?" in check_prompt
+    assert "collects Power Stars" in check_prompt  # the cited passage
+    assert "Because." not in check_prompt  # the explanation would give the answer away
 
 
-def test_self_check_is_skipped_if_the_answer_sheet_does_not_line_up():
-    questions = [q("One?"), q("Two?")]
-    quiz = generate_anyquiz(llm_for(questions, answers=[0]), "trivia", 2, "easy")
+def test_spare_questions_are_requested_only_when_checking(wikipedia):
+    llm = llm_for([q("One?")])
+    generate_anyquiz(llm, "galaxy", 5, "medium", check=True, source=wikipedia)
+    generate_anyquiz(llm, "galaxy", 5, "medium", check=False, source=wikipedia)
+    assert "Write 7 questions" in llm.prompts[0][1]
+    assert "Write 5 questions" in llm.prompts[2][1]
+
+
+def test_quiz_is_trimmed_to_the_requested_size(wikipedia):
+    questions = [q(f"Question {i}?") for i in range(7)]
+    assert (
+        len(generate_anyquiz(llm_for(questions), "galaxy", 5, "medium", source=wikipedia).questions)
+        == 5
+    )
+
+
+def test_check_is_skipped_if_the_answer_sheet_does_not_line_up(wikipedia):
+    quiz = generate_anyquiz(
+        llm_for([q("One?"), q("Two?")], answers=[0]), "galaxy", 2, "easy", source=wikipedia
+    )
     assert len(quiz.questions) == 2
     assert not quiz.checked
 
 
-def test_anyquiz_drops_malformed_and_repeated_questions():
+def test_malformed_repeated_and_unsourced_questions_are_dropped(wikipedia):
     questions = [
         q("Good?"),
         q("good? "),  # repeat
         q("Three choices?", choices=("A", "B", "C")),
         q("Bad index?", answer=7),
+        q("No source?", sources=()),
+        q("Made-up source?", sources=("S99",)),
     ]
-    quiz = generate_anyquiz(llm_for(questions), "trivia", 5, "easy", verify=False)
+    quiz = generate_anyquiz(llm_for(questions), "galaxy", 5, "easy", check=False, source=wikipedia)
     assert [x.question for x in quiz.questions] == ["Good?"]
-    assert quiz.dropped == 3
+    assert quiz.dropped == 5
 
 
-def test_empty_quiz_raises_no_valid_questions():
+def test_no_usable_questions_raises_no_valid_questions(wikipedia):
     with pytest.raises(CoursePilotError) as raised:
-        generate_anyquiz(llm_for([]), "something harmful", 5, "easy")
+        generate_anyquiz(llm_for([]), "galaxy", 5, "easy", source=wikipedia)
     assert raised.value.code is ErrorCode.NO_VALID_QUESTIONS
     assert raised.value.retryable
 
 
-def test_quiz_where_every_answer_is_disputed_raises_no_valid_questions():
-    with pytest.raises(CoursePilotError, match="self-check") as raised:
-        generate_anyquiz(llm_for([q("A?"), q("B?")], answers=[1, 1]), "obscure topic", 2, "hard")
+def test_every_answer_failing_the_check_raises_no_valid_questions(wikipedia):
+    with pytest.raises(CoursePilotError, match="source check") as raised:
+        generate_anyquiz(
+            llm_for([q("A?"), q("B?")], answers=[-1, 3]), "galaxy", 2, "hard", source=wikipedia
+        )
     assert raised.value.code is ErrorCode.NO_VALID_QUESTIONS
 
 
@@ -177,24 +279,43 @@ def test_cli_anyquiz_bad_difficulty_exits_with_input_error(capsys):
     assert "Error [INVALID_DIFFICULTY]" in capsys.readouterr().err
 
 
+def test_cli_anyquiz_unknown_topic_exits_with_no_source(monkeypatch, capsys):
+    monkeypatch.setattr("coursepilot.wiki._fetch_json", FakeWikipedia({}))
+    monkeypatch.setattr("coursepilot.llm.make_provider", lambda name=None: FakeLLM())
+    assert cli.main(["anyquiz", "asdfghjkl"]) == 3
+    assert "Error [SOURCE_NOT_FOUND]" in capsys.readouterr().err
+
+
 def test_cli_anyquiz_without_llm_exits_with_configuration_error(monkeypatch, capsys):
     for var in ("GROQ_API_KEY", "ANTHROPIC_API_KEY", "COURSEPILOT_LLM"):
         monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(
+        "coursepilot.wiki._fetch_json", FakeWikipedia({"Chess": "Chess is a board game."})
+    )
     assert cli.main(["anyquiz", "chess"]) == 4
     assert "Error [NO_LLM_CONFIGURED]" in capsys.readouterr().err
 
 
-def test_cli_anyquiz_prints_a_checked_quiz(monkeypatch, capsys):
+def test_cli_anyquiz_prints_a_sourced_quiz(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "coursepilot.wiki._fetch_json", FakeWikipedia({"Super Mario Galaxy": GALAXY})
+    )
     llm = llm_for(
-        [q("Which piece moves in an L shape?", choices=("Knight", "Rook", "Bishop", "Pawn"))]
+        [
+            q(
+                "What unlocks galaxies?",
+                sources=["S2"],
+                choices=("Power Stars", "Coins", "Keys", "Gems"),
+            )
+        ]
     )
     monkeypatch.setattr("coursepilot.llm.make_provider", lambda name=None: llm)
 
-    assert cli.main(["anyquiz", "chess", "-n", "1", "-d", "easy"]) == 0
+    assert cli.main(["anyquiz", "galaxy", "-n", "1", "-d", "easy"]) == 0
     out = capsys.readouterr().out
-    assert "chess (easy)" in out
-    assert "double-checked" in out
-    assert "A) Knight" in out and "Answer: A." in out
+    assert "Written from Wikipedia: Super Mario Galaxy; every answer checked" in out
+    assert "A) Power Stars" in out
+    assert "(Wikipedia: Super Mario Galaxy § Gameplay)" in out
 
 
 def test_cli_course_quiz_off_topic_exits_with_not_covered(tmp_path, monkeypatch, capsys):
