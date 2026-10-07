@@ -1,0 +1,34 @@
+{"id": "h001", "question": "How is the XML format used alongside image datasets?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 35}]}
+{"id": "h002", "question": "How can I filter pandas rows with a Boolean condition on two columns, such as species and sepal width?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 56}]}
+{"id": "h003", "question": "How can regular expressions pull a product name, model, and price out of a text string?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 83}]}
+{"id": "h004", "question": "What are common text preprocessing techniques such as tokenization and lowercasing?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 95}]}
+{"id": "h005", "question": "How do you calculate the probability of at least one occurrence of an event?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 135}]}
+{"id": "h006", "question": "What share of values falls within two and three standard deviations of the mean in a normal distribution?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 146}]}
+{"id": "h007", "question": "In bootstrapping, why is sampling done with replacement?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 170}]}
+{"id": "h008", "question": "When testing a claim that women engineers earn less than men engineers, which inequality goes in the alternative hypothesis?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 191}]}
+{"id": "h009", "question": "When modeling revenue against advertising spend, which one is the independent variable?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 208}]}
+{"id": "h010", "question": "How can I plot a time series line chart from a CSV file using pandas?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 229}]}
+{"id": "h011", "question": "How do different smoothing parameters change an exponential moving average forecast?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 256}]}
+{"id": "h012", "question": "In DBSCAN clustering, what makes a point a core point?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 298}]}
+{"id": "h013", "question": "How do you plot a multiple linear regression plane in three dimensions with matplotlib?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 312}]}
+{"id": "h014", "question": "How do you train and evaluate a Gaussian naive Bayes classifier with scikit-learn?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 333}]}
+{"id": "h015", "question": "How do you build a simple recurrent neural network in TensorFlow for time series data?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 360}]}
+{"id": "h016", "question": "What steps protect personally identifiable medical data in a project that must follow HIPAA?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 395}]}
+{"id": "h017", "question": "What are the steps to create a histogram from a frequency table?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 432}]}
+{"id": "h018", "question": "Which Python libraries support 3D visualization, and how do you make a 3D scatterplot?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 464}]}
+{"id": "h019", "question": "How do you tune a decision tree's hyperparameters with grid search and cross-validation?", "answerable": true, "gold": [{"source": "principles-of-data-science.pdf", "page": 490}]}
+{"id": "hoff01", "question": "What is the tallest mountain in Africa?", "answerable": false, "topic": "off-topic"}
+{"id": "hoff02", "question": "How do I make cold brew coffee?", "answerable": false, "topic": "off-topic"}
+{"id": "hoff03", "question": "Who painted the Mona Lisa?", "answerable": false, "topic": "off-topic"}
+{"id": "hoff04", "question": "What is the best way to train a puppy to sit?", "answerable": false, "topic": "off-topic"}
+{"id": "hoff05", "question": "When was the Declaration of Independence signed?", "answerable": false, "topic": "off-topic"}
+{"id": "hoff06", "question": "How do I treat a sunburn?", "answerable": false, "topic": "off-topic"}
+{"id": "hoff07", "question": "What language is spoken in Brazil?", "answerable": false, "topic": "off-topic"}
+{"id": "hoff08", "question": "How do I create a Docker container for a Node.js app?", "answerable": false, "topic": "near-domain"}
+{"id": "hoff09", "question": "What is the difference between TCP and UDP?", "answerable": false, "topic": "near-domain"}
+{"id": "hoff10", "question": "How does public-key cryptography work?", "answerable": false, "topic": "near-domain"}
+{"id": "hoff11", "question": "What is a closure in JavaScript?", "answerable": false, "topic": "near-domain"}
+{"id": "hoff12", "question": "How do I center a div with CSS flexbox?", "answerable": false, "topic": "near-domain"}
+{"id": "hoff13", "question": "What does the ARM instruction set architecture define?", "answerable": false, "topic": "near-domain"}
+{"id": "hoff14", "question": "How does garbage collection work in Java?", "answerable": false, "topic": "near-domain"}
+{"id": "hoff15", "question": "How do I deploy a website with GitHub Pages?", "answerable": false, "topic": "near-domain"}
