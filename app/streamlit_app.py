@@ -59,12 +59,16 @@ header[data-testid="stHeader"], footer, [data-testid="stToolbar"] { display: non
 .block-container { padding-top: 0; max-width: 1100px; }
 
 .bb-masthead {
-  background: #22313f; color: #f6f3ec; margin: 0 -100vw 1.4rem; padding: 1.1rem 100vw 1rem;
-  border-bottom: 4px solid #2a6496;
+  background: #22313f; color: #fdfaf2; margin: 0 -100vw 1.6rem; padding: 1.3rem 100vw 1.2rem;
+  border-bottom: 5px solid #c9a24a;
 }
-.bb-brand { font-family: Georgia, "Times New Roman", serif; font-size: 2rem; font-weight: bold;
-  letter-spacing: 0.5px; }
-.bb-tagline { font-size: 0.95rem; color: #c9d3dd; margin-top: 0.1rem; }
+.bb-logo { display: flex; align-items: center; gap: 16px; }
+.bb-icon { width: 54px; height: 54px; flex: none; }
+.bb-brand { font-family: Georgia, "Times New Roman", serif; font-size: 2.7rem; font-weight: 700;
+  line-height: 1; letter-spacing: 0.2px; }
+.bb-brand em { font-weight: 400; font-size: 0.78em; color: #c9a24a; }
+.bb-tagline { font-size: 0.78rem; color: #b9c4cf; margin-top: 0.45rem; text-transform: uppercase;
+  letter-spacing: 1.6px; }
 
 /* Classic rectangular tabs with a rule underneath. */
 [data-testid="stTabs"] [role="tablist"] { gap: 4px; border-bottom: 1px solid #cfc6b4; }
@@ -86,8 +90,20 @@ header[data-testid="stHeader"], footer, [data-testid="stToolbar"] { display: non
 
 MASTHEAD = """
 <div class="bb-masthead">
-  <div class="bb-brand">Back of the Book</div>
-  <div class="bb-tagline">Answers with sources, practice quizzes, and a quiz on anything.</div>
+  <div class="bb-logo">
+    <svg class="bb-icon" viewBox="0 0 48 48" fill="none" stroke="#c9a24a" stroke-width="2.4"
+         stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
+      <path d="M24 13c-4.5-3.2-11-4.2-19-3.2v27c8-1 14.5 0 19 3.2 4.5-3.2 11-4.2 19-3.2v-27
+               c-8-1-14.5 0-19 3.2z"/>
+      <path d="M24 13v27"/>
+      <path d="M10 17c3.5-.4 7 0 9.5 1.2M10 23c3.5-.4 7 0 9.5 1.2M28.5 18.2c2.5-1.2 6-1.6 9.5-1.2"/>
+    </svg>
+    <div>
+      <div class="bb-brand">Back of <em>the</em> Book</div>
+      <div class="bb-tagline">Answers with sources &middot; Practice quizzes &middot;
+        A quiz on anything</div>
+    </div>
+  </div>
 </div>
 """
 
@@ -149,7 +165,7 @@ def add_uploads(
             try:
                 pages.extend(load_document(path))
             except Exception as e:  # a bad upload shouldn't take down the app
-                st.sidebar.error(f"Couldn't read {upload.name}: {e}")
+                st.error(f"Couldn't read {upload.name}: {e}")
     chunks = chunk_pages(pages)
     if not chunks:
         return index
@@ -164,9 +180,11 @@ def render_sources(numbered_hits: list[tuple[int, Hit]]) -> None:
             st.write(hit.chunk.text)
 
 
-# --- Sidebar: materials and settings -----------------------------------------------------
+# --- Layout: tabs first, so the upload box can sit inside "Ask" ----------------------------
 
-st.sidebar.header("Your materials")
+ask_tab, course_tab, anyquiz_tab, about_tab = st.tabs(["Ask", "Course quiz", "AnyQuiz", "About"])
+about_body, about_settings = about_tab.container(), about_tab.container()
+
 if USE_SAMPLE and not (INDEX_DIR / "meta.json").exists():
     with st.spinner(
         "First start: downloading the sample textbook and indexing it. This takes about a minute."
@@ -176,43 +194,46 @@ if USE_SAMPLE and not (INDEX_DIR / "meta.json").exists():
 base_index = load_base_index()
 embedder, reranker = load_models(base_index.embedding_model if base_index else DEFAULT_MODEL)
 
-uploads = st.sidebar.file_uploader(
-    "Add your own course materials",
-    type=[s.lstrip(".") for s in SUPPORTED_SUFFIXES],
-    accept_multiple_files=True,
-    help="PDF slides or notes, PowerPoint decks, Markdown, or text. Stays in this session only.",
-)
+with ask_tab:
+    uploads = st.file_uploader(
+        "Upload your own course materials (optional)",
+        type=[s.lstrip(".") for s in SUPPORTED_SUFFIXES],
+        accept_multiple_files=True,
+        help="PDF slides or notes, PowerPoint decks, Markdown, or text. Your files are used "
+        "by Ask and Course quiz, and are only kept for this visit.",
+    )
 upload_key = tuple(sorted((u.name, u.size) for u in uploads or []))
 if st.session_state.get("upload_key") != upload_key:
-    with st.spinner("Indexing your files..."):
+    with ask_tab, st.spinner("Reading your files..."):
         st.session_state.index = add_uploads(base_index, uploads or [], embedder)
     st.session_state.upload_key = upload_key
 index: CorpusIndex | None = st.session_state.index
 
 if index is None:
-    st.info(
-        "No course materials loaded yet. Upload files in the sidebar, or build the sample "
-        "index with `python scripts/download_corpus.py && backofthebook ingest data/corpus`."
-    )
+    with ask_tab:
+        st.info("Upload your notes, slides, or textbook above to get started.")
     st.stop()
 
-st.sidebar.caption(
-    f"{len(index.chunks):,} passages from {len(index.sources)} file(s): " + ", ".join(index.sources)
-)
+with ask_tab:
+    names = ", ".join(index.sources)
+    st.caption(f"Answering from: {names} ({len(index.chunks):,} passages)")
 
 provider_names = {
-    "Auto": None,
+    "Automatic": None,
     "Groq": "groq",
     "Claude": "claude",
-    "No LLM (quotes only)": "extractive",
+    "No AI (show matching passages only)": "extractive",
 }
-choice = st.sidebar.selectbox("Answer with", list(provider_names), index=0)
-try:
-    llm = make_provider(provider_names[choice])
-except Exception as e:
-    st.sidebar.error(f"Couldn't start {choice}: {e}")
-    llm = make_provider("extractive")
-st.sidebar.caption(f"Using: **{llm.name}**")
+with about_settings:
+    st.markdown("### Settings")
+    choice = st.selectbox("Answers and quizzes are written by", list(provider_names), index=0)
+    try:
+        llm = make_provider(provider_names[choice])
+    except Exception as e:
+        st.error(f"Couldn't start {choice}: {e}")
+        llm = make_provider("extractive")
+    friendly = {"groq": "Groq", "claude": "Claude", "extractive": "No AI (matching passages only)"}
+    st.caption(f"Currently using: {friendly.get(llm.name, llm.name)}")
 
 retriever = Retriever(index, embedder, reranker)
 engine = AnswerEngine(retriever, llm)
@@ -332,8 +353,6 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
         st.caption("Left out " + " and ".join(removed) + " question(s).")
 
 
-ask_tab, course_tab, anyquiz_tab, about_tab = st.tabs(["Ask", "Course quiz", "AnyQuiz", "About"])
-
 # --- Ask -----------------------------------------------------------------------------------
 
 with ask_tab:
@@ -388,7 +407,7 @@ with anyquiz_tab:
 
 # --- Evaluation ----------------------------------------------------------------------------
 
-with about_tab:
+with about_body:
     st.markdown(
         """
 ### How it works

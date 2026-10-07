@@ -40,7 +40,9 @@ def app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 def test_app_shows_loaded_materials(app):
     at = app(FakeLLM())
-    assert any("2 file(s)" in c.value for c in at.sidebar.caption)
+    assert any("Answering from: ml.pptx, stats.pdf" in c.value for c in at.caption)
+    assert at.file_uploader  # the upload box lives in the Ask tab, not a sidebar
+    assert not at.sidebar.caption
 
 
 def test_ask_streams_answer_and_shows_cited_sources(app):
