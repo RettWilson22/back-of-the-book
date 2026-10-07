@@ -105,7 +105,7 @@ Invalid input is rejected **before** any API call. A test checks that every code
 | [`quiz.py`](src/coursepilot/quiz.py) | Course quiz and AnyQuiz, difficulty levels, validation, double-check. |
 | [`errors.py`](src/coursepilot/errors.py) | Error codes, messages, retryability, and CLI exit codes. |
 | [`evaluation.py`](src/coursepilot/evaluation.py) | Recall@k, MRR, and off-topic metrics. |
-| [`app/streamlit_app.py`](app/streamlit_app.py) | Web UI: chat with sources, course quiz, AnyQuiz, grading, eval results. |
+| [`app/streamlit_app.py`](app/streamlit_app.py) | Web UI: chat with sources, course quiz, AnyQuiz, grading, and a plain-language About page. |
 
 ## Design decisions
 

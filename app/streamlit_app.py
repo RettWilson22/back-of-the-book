@@ -330,7 +330,7 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
         st.caption("Left out " + " and ".join(removed) + " question(s).")
 
 
-ask_tab, course_tab, anyquiz_tab, eval_tab = st.tabs(["Ask", "Course quiz", "AnyQuiz", "Accuracy"])
+ask_tab, course_tab, anyquiz_tab, about_tab = st.tabs(["Ask", "Course quiz", "AnyQuiz", "About"])
 
 # --- Ask -----------------------------------------------------------------------------------
 
@@ -386,18 +386,45 @@ with anyquiz_tab:
 
 # --- Evaluation ----------------------------------------------------------------------------
 
-with eval_tab:
+with about_tab:
     st.markdown(
-        "Retrieval accuracy on a fixed question set: each question is labeled with the textbook "
-        "page that answers it. See the README for how the questions were written."
+        """
+### How it works
+
+**Ask.** Your question is matched against your course materials (or the sample textbook).
+The closest passages are given to the AI, which answers using only those passages and cites
+them. Open a source under any answer to read the original text and see its page number.
+If nothing in your materials is close to the question, it says so instead of guessing.
+
+**Course quiz.** Questions are written only from passages in your materials, and every
+question lists the passage it came from.
+
+**AnyQuiz.** For any topic, it finds the matching Wikipedia article and writes the quiz from
+that article. Each question links to the section its answer comes from.
+
+**Answer checking.** After a quiz is written, a second, separate pass looks at each
+question and its source passage, without seeing the answer key, and picks the answer the
+source supports. If the two don't match, the question is left out.
+
+### How reliable is it?
+
+We tested it on a 561-page data science textbook with questions whose correct page we
+knew in advance:
+
+- For **70 of 75** questions, the right page was among the five passages it read first.
+- It answered all **94** real questions and declined **32 of 35** questions that had
+  nothing to do with the book.
+
+### Things to keep in mind
+
+- It can still make mistakes, so check the source for anything important. Every answer
+  and quiz question shows where it came from so you can.
+- If a quiz question looks wrong, use **Report a problem** under it.
+- Scanned PDFs (pictures of pages) can't be read.
+
+The full test results and method are in the
+[project README](https://github.com/RettWilson22/coursepilot#results).
+"""
     )
-    for title, name in [
-        ("Main question set", "results.md"),
-        ("Held-out set", "results-heldout.md"),
-    ]:
-        path = ROOT / "eval" / name
-        if path.exists():
-            st.subheader(title)
-            st.markdown(path.read_text())
 
 st.markdown(FOOTER, unsafe_allow_html=True)
