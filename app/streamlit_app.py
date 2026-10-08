@@ -22,6 +22,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SRC))
 
 import streamlit as st
+from streamlit.delta_generator import DeltaGenerator
 from streamlit.errors import StreamlitSecretNotFoundError
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
@@ -132,6 +133,7 @@ header[data-testid="stHeader"], footer, [data-testid="stToolbar"] { display: non
   font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; margin-right: 0.4rem; }
 .bb-right { color: #2e6b30; background: #e6f2e4; border-color: #9cc49a; }
 .bb-wrong { color: #8c2a24; background: #f7e4e1; border-color: #d9a29b; }
+.bb-skip { color: #5c5a52; background: #ecebe4; border-color: #c4c1b5; }
 
 /* Chat that reads like a modern assistant: your messages in bubbles on the right,
    replies as plain text on the left. */
@@ -423,20 +425,20 @@ def show_error(error: BackOfTheBookError) -> None:
     st.caption(f"Error code: `{error.code}`")
 
 
-def guarded(action: Callable[[], Quiz]) -> Quiz | None:
-    """Run a quiz request, turning every failure into a coded, user-facing message."""
+def guarded(action: Callable[[], Quiz], slot: DeltaGenerator) -> Quiz | None:
+    """Run a quiz request, turning every failure into a coded, user-facing message in `slot`."""
     try:
         return action()
     except BackOfTheBookError as e:
         logger.info("quiz request failed: %r", e)
-        show_error(e)
+        error = e
     except Exception:
         logger.exception("unexpected error while generating a quiz")
-        show_error(
-            BackOfTheBookError(
-                ErrorCode.INTERNAL_ERROR, "Something went wrong on our side. Please try again."
-            )
+        error = BackOfTheBookError(
+            ErrorCode.INTERNAL_ERROR, "Something went wrong on our side. Please try again."
         )
+    with slot.container():
+        show_error(error)
     return None
 
 
@@ -475,10 +477,10 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
         )
         count = st.slider("Number of questions", 3, MAX_QUESTIONS, 5)
         submitted = st.form_submit_button("Generate quiz", type="primary")
-    status = st.empty()  # one slot, so an old error disappears while the next quiz is written
+    message = st.empty()  # replaces an old error as soon as the next request starts
     if submitted:
-        with status.container(), st.spinner("Reading the sources and writing your quiz..."):
-            quiz = guarded(lambda: generate(topic, count, Difficulty(level.lower())))
+        with st.spinner("Reading the sources and writing your quiz..."):
+            quiz = guarded(lambda: generate(topic, count, Difficulty(level.lower())), message)
         if quiz is not None:
             st.session_state[f"{key}_quiz"] = quiz
             st.session_state[f"{key}_id"] = st.session_state.get(f"{key}_id", 0) + 1
@@ -513,12 +515,14 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
         st.subheader(f"Score: {score} / {len(quiz.questions)}")
         for i, (pick, q) in enumerate(pairs, start=1):
             correct = q.choices[q.answer_index]
+            chose = ""
             if pick == correct:
                 mark = '<span class="bb-mark bb-right">Correct</span>'
-                chose = ""
+            elif pick is None:
+                mark = '<span class="bb-mark bb-skip">Skipped</span>'
             else:
                 mark = '<span class="bb-mark bb-wrong">Incorrect</span>'
-                chose = f" You chose *{pick}*." if pick else " Not answered."
+                chose = f" You chose *{pick}*."
             st.markdown(
                 f"{mark} **{i}.**{chose} Answer: *{correct}*. {q.explanation}",
                 unsafe_allow_html=True,

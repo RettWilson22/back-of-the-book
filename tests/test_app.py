@@ -305,3 +305,13 @@ def test_input_mistakes_show_a_hint_without_an_error_code(app):
     assert not at.exception
     assert at.info
     assert not any("EMPTY_TOPIC" in c.value for c in at.caption)
+
+
+def test_unanswered_questions_are_marked_skipped(app):
+    at = app(quiz_llm([kmeans_question()]))
+    at.text_input[0].set_value("k-means clustering")
+    quiz_buttons(at)[0].click().run()
+    next(b for b in at.button if b.label == "Check answers").click().run()
+
+    assert any("Skipped" in m.value for m in at.markdown)
+    assert not any("You chose" in m.value for m in at.markdown)
