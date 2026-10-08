@@ -37,10 +37,11 @@ def reload_package_if_updated() -> None:
     """
     newest = max(p.stat().st_mtime for p in (SRC / "backofthebook").glob("*.py"))
     holder = sys.modules.setdefault("_backofthebook_src_stamp", type(sys)("stamp"))
-    previous = getattr(holder, "stamp", None)
-    if previous is not None and newest != previous:
-        stale = [m for m in sys.modules if m == "backofthebook" or m.startswith("backofthebook.")]
-        for name in stale:
+    loaded = [m for m in sys.modules if m == "backofthebook" or m.startswith("backofthebook.")]
+    # Stale if the package is already in memory and wasn't loaded from these exact files,
+    # including when it was loaded before this check existed (no stamp recorded yet).
+    if loaded and getattr(holder, "stamp", None) != newest:
+        for name in loaded:
             del sys.modules[name]
         st.cache_resource.clear()
     holder.stamp = newest  # type: ignore[attr-defined]
