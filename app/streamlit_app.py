@@ -14,6 +14,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import streamlit as st
+from streamlit.errors import StreamlitSecretNotFoundError
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from backofthebook.answer import Answer, AnswerEngine, Turn
@@ -52,6 +53,23 @@ st.set_page_config(
     layout="wide",
 )
 logger = logging.getLogger("backofthebook.app")
+
+
+def load_api_keys_from_secrets() -> None:
+    """On Streamlit Community Cloud, API keys are set in the app's Secrets settings. Copy them
+    into the environment, where the Groq and Anthropic clients look for them."""
+    for name in ("GROQ_API_KEY", "ANTHROPIC_API_KEY"):
+        if os.environ.get(name):
+            continue
+        try:
+            value = st.secrets.get(name)
+        except (FileNotFoundError, StreamlitSecretNotFoundError):
+            return  # running locally with no secrets file
+        if value:
+            os.environ[name] = str(value)
+
+
+load_api_keys_from_secrets()
 
 STYLE = """
 <style>

@@ -9,3 +9,4 @@ data/corpus/*.pdf
 .coverage
 *.egg-info/
 eval/anyquiz/articles/
+.streamlit/secrets.toml
