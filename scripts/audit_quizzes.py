@@ -1,10 +1,10 @@
 """Generate quizzes for a fixed set of topics, for grading answer-key accuracy by hand.
 
-Compares two ways of writing an AnyQuiz quiz on the same topics:
-- memory:  the model writes questions from its own knowledge (the original AnyQuiz design,
+Compares two ways of writing a Quiz generator quiz on the same topics:
+- memory:  the model writes questions from its own knowledge (the original Quiz generator design,
            kept here only as a baseline);
 - sourced: questions from the topic's Wikipedia article, then checked against the cited
-           passages (what AnyQuiz does now).
+           passages (what the Quiz generator does now).
 
 Writes one JSON line per question to eval/anyquiz/questions.jsonl, plus each topic's Wikipedia
 article text to eval/anyquiz/articles/ (git-ignored) so every answer key can be graded against

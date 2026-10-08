@@ -157,7 +157,7 @@ def test_course_quiz_on_off_topic_subject_points_to_anyquiz(app):
     quiz_buttons(at)[0].click().run()
 
     assert not at.exception
-    assert any("don't cover" in i.value and "AnyQuiz" in i.value for i in at.info)
+    assert any("don't cover" in i.value and "Quiz generator" in i.value for i in at.info)
     assert not any("TOPIC_NOT_COVERED" in c.value for c in at.caption)  # a hint, not a fault
 
 
@@ -180,7 +180,7 @@ def test_anyquiz_writes_from_wikipedia_checks_and_grades(app, monkeypatch):
     wrong_key = kmeans_question(question="A question with a bad answer key?", sources=["S1"])
     at = app(quiz_llm([star, wrong_key], answers=[0, 2]))
     at.text_input[1].set_value("mario galaxy")
-    quiz_buttons(at)[1].click().run()  # "Generate quiz" in the AnyQuiz tab
+    quiz_buttons(at)[1].click().run()  # "Generate quiz" in the Quiz generator tab
 
     assert not at.exception
     assert not any("bad answer key" in r.label for r in at.radio)  # dropped by the source check

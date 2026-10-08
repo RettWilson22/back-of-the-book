@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/RettWilson22/back-of-the-book/actions/workflows/ci.yml/badge.svg)](https://github.com/RettWilson22/back-of-the-book/actions/workflows/ci.yml)
 
-Ask questions about your course materials and get answers that cite the exact page they came from. Generate practice quizzes from the same materials, or use **AnyQuiz** to get a quiz on any topic at all, at **easy, medium, or hard** difficulty. And see how accurate the retrieval actually is, measured on a fixed question set instead of assumed.
+Ask questions about your course materials and get answers that cite the exact page they came from. Generate practice quizzes from the same materials, or use the **Quiz generator** to get a quiz on any topic at all, at **easy, medium, or hard** difficulty. And see how accurate the retrieval actually is, measured on a fixed question set instead of assumed.
 
 The name comes from the answers in the back of a textbook: every answer here tells you the page it came from, so you can check it.
 
@@ -37,7 +37,7 @@ Off-topic questions that still get through: "SOLID principles", "public-key cryp
 
 > These are small evaluation sets: about ±10 points of uncertainty on 75 questions, more on the held-out set. Read differences of a few points as indicative.
 
-## AnyQuiz: a quiz on any topic
+## Quiz generator: a quiz on any topic
 
 Type any topic (*Pokémon*, *the NFL*, *the French Revolution*), pick **Easy**, **Medium**, or **Hard**, and get a multiple-choice quiz. Take it in the app and get graded, with an explanation and a source link for every answer.
 
@@ -47,7 +47,7 @@ Type any topic (*Pokémon*, *the NFL*, *the French Revolution*), pick **Easy**, 
 | Medium | Understanding and application; plausible wrong choices |
 | Hard | Lesser-known details, multi-step reasoning, and edge cases; wrong choices based on common misconceptions |
 
-**Every quiz comes from a source.** An earlier version wrote quizzes from the model's memory, and live testing on niche topics (Super Mario Galaxy) produced wrong answer keys. A second pass that re-answered from memory couldn't catch them, because a model that's confidently wrong is wrong both times. So AnyQuiz now finds the topic's Wikipedia article (skipping "may refer to" pages), splits it into passages covering every section, and writes questions only from those passages. Each question must cite the passage that states its answer.
+**Every quiz comes from a source.** An earlier version wrote quizzes from the model's memory, and live testing on niche topics (Super Mario Galaxy) produced wrong answer keys. A second pass that re-answered from memory couldn't catch them, because a model that's confidently wrong is wrong both times. So the Quiz generator now finds the topic's Wikipedia article (skipping "may refer to" pages), splits it into passages covering every section, and writes questions only from those passages. Each question must cite the passage that states its answer.
 
 **Source check.** After the quiz is written, a separate pass sees each question, its choices, and its cited passages, but not the answer key, and picks the answer the passages support (or none). Questions where that doesn't match the key are left out, and the app says how many. The quiz asks for a couple of spare questions so you still get the number you asked for. The **Course quiz** works the same way, using passages from your materials instead.
 
@@ -64,7 +64,7 @@ Every failure is a `BackOfTheBookError` ([`errors.py`](src/backofthebook/errors.
 | `INVALID_QUESTION_COUNT` | Not 1–10 questions | no | 2 |
 | `INVALID_DIFFICULTY` | Not easy / medium / hard | no | 2 |
 | `TOPIC_NOT_COVERED` | Course quiz topic isn't in the loaded materials | no | 3 |
-| `SOURCE_NOT_FOUND` | No Wikipedia article matches the AnyQuiz topic | no | 3 |
+| `SOURCE_NOT_FOUND` | No Wikipedia article matches the Quiz generator topic | no | 3 |
 | `SOURCE_UNAVAILABLE` | Wikipedia couldn't be reached | yes | 5 |
 | `NO_LLM_CONFIGURED` | No `GROQ_API_KEY` or `ANTHROPIC_API_KEY` | no | 4 |
 | `LLM_AUTH_FAILED` | API key rejected | no | 4 |
@@ -97,7 +97,7 @@ Invalid input is rejected **before** any API call. A test checks that every code
         ▼
  quiz.py    course quiz: same retrieval → structured JSON quiz → each question validated
             (4 distinct choices, valid answer, cites a real passage) or dropped
-            AnyQuiz: topic → Wikipedia article (wiki.py) → same quiz pipeline
+            Quiz generator: topic → Wikipedia article (wiki.py) → same quiz pipeline
             both: a blind source check re-answers each question; mismatches are dropped
 ```
 
@@ -109,12 +109,12 @@ Invalid input is rejected **before** any API call. A test checks that every code
 | [`retrieval.py`](src/backofthebook/retrieval.py) | Four retrieval modes behind one interface, so the eval compares them on identical inputs. |
 | [`llm.py`](src/backofthebook/llm.py) | Claude, Groq, and offline providers behind one small interface. |
 | [`answer.py`](src/backofthebook/answer.py) | Conversation memory, relevance check, prompt, streaming reasoning and answer, citation validation. |
-| [`quiz.py`](src/backofthebook/quiz.py) | Course quiz and AnyQuiz, difficulty levels, validation, source check. |
+| [`quiz.py`](src/backofthebook/quiz.py) | Course quiz and Quiz generator, difficulty levels, validation, source check. |
 | [`wiki.py`](src/backofthebook/wiki.py) | Finds a topic's Wikipedia article (skipping disambiguation pages) and splits it into passages covering every section. |
 | [`sample.py`](src/backofthebook/sample.py) | Downloads and indexes the sample textbook. |
 | [`errors.py`](src/backofthebook/errors.py) | Error codes, messages, retryability, and CLI exit codes. |
 | [`evaluation.py`](src/backofthebook/evaluation.py) | Recall@k, MRR, and off-topic metrics. |
-| [`app/streamlit_app.py`](app/streamlit_app.py) | Web UI: chat with sources, course quiz, AnyQuiz, grading, and a plain-language About page. |
+| [`app/streamlit_app.py`](app/streamlit_app.py) | Web UI: chat with sources, course quiz, Quiz generator, grading, and a plain-language About page. |
 
 ## Design decisions
 
@@ -130,7 +130,7 @@ Invalid input is rejected **before** any API call. A test checks that every code
 
 **Live demo: https://backofthebook.streamlit.app**
 
-It's preloaded with the sample textbook. Ask a question (or click one of the examples), open **Course quiz** or **AnyQuiz** and pick a topic, or add your own slides or notes at the top of **Ask**. Uploaded files stay in your session only, and the model provider can be changed under **About → Settings**.
+It's preloaded with the sample textbook. Ask a question (or click one of the examples), open **Course quiz** or **Quiz generator** and pick a topic, or add your own slides or notes at the top of **Ask**. Uploaded files stay in your session only, and the model provider can be changed under **About → Settings**.
 
 ## Getting started
 
@@ -196,4 +196,4 @@ The fast tests cover every module (96% line coverage of `src/`), every error cod
 
 ## License
 
-Code: MIT. Evaluation questions and the bundled sample index: CC BY-NC-SA 4.0, as derivatives of the OpenStax textbook ([eval](eval/README.md), [data](data/README.md)). The textbook PDF itself isn't redistributed here. AnyQuiz quizzes are written from Wikipedia text, available under CC BY-SA 4.0; each question links to its article.
+Code: MIT. Evaluation questions and the bundled sample index: CC BY-NC-SA 4.0, as derivatives of the OpenStax textbook ([eval](eval/README.md), [data](data/README.md)). The textbook PDF itself isn't redistributed here. Quiz generator quizzes are written from Wikipedia text, available under CC BY-SA 4.0; each question links to its article.

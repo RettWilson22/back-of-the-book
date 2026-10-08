@@ -179,7 +179,7 @@ def test_network_failure_raises_source_unavailable(monkeypatch):
     assert raised.value.retryable
 
 
-# --- AnyQuiz generation ----------------------------------------------------------------------
+# --- Quiz generator ------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("level", list(Difficulty))
