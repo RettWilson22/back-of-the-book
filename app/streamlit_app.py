@@ -30,21 +30,20 @@ def reload_package_if_updated() -> None:
     """After a deploy, drop stale copies of the package so the new code is imported.
 
     Streamlit keeps imported modules in memory between runs and only reloads files it is
-    watching, so a push that changes src/ but not this file would keep running old code.
-    The newest src/ timestamp is remembered process-wide; when it changes, the package's
-    modules are removed from sys.modules (re-imported fresh below) and cached models and
-    indexes built from the old classes are cleared.
+    watching, so a push that changes src/ could keep running old code. The package records
+    its source files' newest timestamp when imported (SOURCE_STAMP); if the files on disk
+    are newer, or the loaded copy predates that attribute, its modules are removed from
+    sys.modules (re-imported fresh below) and cached models and indexes are cleared.
     """
+    package = sys.modules.get("backofthebook")
+    if package is None:
+        return  # not imported yet in this process, so it will load from the current files
     newest = max(p.stat().st_mtime for p in (SRC / "backofthebook").glob("*.py"))
-    holder = sys.modules.setdefault("_backofthebook_src_stamp", type(sys)("stamp"))
-    loaded = [m for m in sys.modules if m == "backofthebook" or m.startswith("backofthebook.")]
-    # Stale if the package is already in memory and wasn't loaded from these exact files,
-    # including when it was loaded before this check existed (no stamp recorded yet).
-    if loaded and getattr(holder, "stamp", None) != newest:
-        for name in loaded:
-            del sys.modules[name]
-        st.cache_resource.clear()
-    holder.stamp = newest  # type: ignore[attr-defined]
+    if getattr(package, "SOURCE_STAMP", None) == newest:
+        return
+    for name in [m for m in sys.modules if m == "backofthebook" or m.startswith("backofthebook.")]:
+        del sys.modules[name]
+    st.cache_resource.clear()
 
 
 reload_package_if_updated()
