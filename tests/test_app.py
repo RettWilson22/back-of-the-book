@@ -43,7 +43,7 @@ def test_app_shows_loaded_materials_as_clickable_documents(app):
     assert at.file_uploader  # the upload box lives in the Ask tab, not a sidebar
     assert not at.sidebar.caption
     assert at.button_group[0].options == ["ml.pptx", "stats.pdf"]
-    assert any("Answering from all your documents" in c.value for c in at.caption)
+    assert any("Answering from all loaded documents" in c.value for c in at.caption)
 
 
 def test_clicking_a_document_answers_only_from_it(app):

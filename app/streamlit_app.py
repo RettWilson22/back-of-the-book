@@ -18,7 +18,7 @@ from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from backofthebook.answer import Answer, AnswerEngine, Turn
 from backofthebook.chunking import chunk_pages
-from backofthebook.documents import SUPPORTED_SUFFIXES, load_document
+from backofthebook.documents import SUPPORTED_SUFFIXES, load_document, unreadable_pages
 from backofthebook.errors import BackOfTheBookError, ErrorCode
 from backofthebook.index import (
     CorpusIndex,
@@ -177,6 +177,12 @@ def add_uploads(
             path.write_bytes(upload.getvalue())
             try:
                 pages.extend(load_document(path))
+                if blank := unreadable_pages(path):
+                    listed = ", ".join(str(n) for n in blank[:10])
+                    st.warning(
+                        f"{upload.name}: page(s) {listed} have no readable text, probably "
+                        "because they're scanned images. The AI can't see what's on them."
+                    )
             except Exception as e:  # a bad upload shouldn't take down the app
                 st.error(f"Couldn't read {upload.name}: {e}")
     chunks = chunk_pages(pages)
@@ -265,10 +271,13 @@ with ask_tab:
         index.sources,
         selection_mode="multi",
         key="referenced_docs",
-        help="Click a document to answer only from it. Click again to go back to all of them.",
+        help="Click a document to answer only from it. Click again to go back to the default.",
     )
-    scope = ", ".join(referenced) if referenced else "all your documents"
-    st.caption(f"Answering from {scope} ({len(index.chunks):,} passages loaded).")
+    # Default scope: the student's own uploads if there are any, otherwise everything loaded.
+    uploaded_names = sorted({u.name for u in uploads or []} & set(index.sources))
+    scope_sources: list[str] | None = list(referenced) or uploaded_names or None
+    scope = ", ".join(scope_sources) if scope_sources else "all loaded documents"
+    st.caption(f"Answering from {scope}.")
 
 provider_names = {
     "Automatic": None,
@@ -467,7 +476,7 @@ with ask_tab:
             with st.chat_message("user"):
                 st.markdown(question)
             with st.chat_message("assistant"):
-                record = stream_reply(question, referenced or None)
+                record = stream_reply(question, scope_sources)
         if record is not None:
             st.session_state.turns.append(record)
 
@@ -502,9 +511,11 @@ with about_body:
 **Ask.** Chat with the AI like any assistant: it remembers the conversation, works through
 problems step by step, and shows what it was thinking. When your materials cover the
 question, it uses the closest passages and cites them, so you can open a source and see the
-original text and page number. Click a document above the chat to answer only from that
-document. When your materials don't cover a question, it answers from general knowledge
-and says so.
+original text and page number. When you upload files, it answers from your files. Short
+documents (like a syllabus or an assignment) are read in full, and for longer ones it always
+reads the first page plus the passages that best match your question. Click a document above
+the chat to answer only from that document. When your materials don't cover a question, it
+answers from general knowledge and says so.
 
 **Course quiz.** Questions are written only from passages in your materials, and every
 question lists the passage it came from.

@@ -12,6 +12,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 SUPPORTED_SUFFIXES = (".pdf", ".pptx", ".md", ".txt")
+# Repeated headers/footers are only stripped from long documents (books). In short documents a
+# line on every page is usually real content, like the course name or the teacher's name.
+BOILERPLATE_MIN_PAGES = 12
 
 
 @dataclass(frozen=True)
@@ -79,8 +82,9 @@ def load_pdf(path: Path) -> list[Page]:
 
     raw = [pdf_page.extract_text() or "" for pdf_page in PdfReader(path).pages]
     offset = detect_page_offset(raw)
+    texts = remove_boilerplate(raw) if len(raw) >= BOILERPLATE_MIN_PAGES else raw
     pages = []
-    for number, text in enumerate(remove_boilerplate(raw), start=1):
+    for number, text in enumerate(texts, start=1):
         text = clean_text(text)
         printed = number - offset if offset else None
         label = str(printed) if printed is not None and printed >= 1 else None
@@ -132,6 +136,19 @@ def load_document(path: Path) -> list[Page]:
     raise UnsupportedFileError(
         f"{path.name}: unsupported file type (supported: {', '.join(SUPPORTED_SUFFIXES)})"
     )
+
+
+def unreadable_pages(path: Path) -> list[int]:
+    """PDF pages with no extractable text, usually scanned images (empty for other types)."""
+    if path.suffix.lower() != ".pdf":
+        return []
+    from pypdf import PdfReader
+
+    return [
+        number
+        for number, page in enumerate(PdfReader(path).pages, start=1)
+        if not (page.extract_text() or "").strip()
+    ]
 
 
 def find_documents(paths: list[Path]) -> list[Path]:
