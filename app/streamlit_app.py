@@ -8,11 +8,17 @@ from __future__ import annotations
 import html
 import logging
 import os
+import sys
 import tempfile
 import urllib.parse
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+
+# Always import the package from this repo's src/, not a copy installed earlier. Hosts like
+# Streamlit Community Cloud install requirements once and only reinstall when requirements.txt
+# changes, so an installed copy can fall behind the app code after a push.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import streamlit as st
 from streamlit.errors import StreamlitSecretNotFoundError
