@@ -51,6 +51,22 @@ NO_EXCERPTS_NOTE = "(No relevant excerpts were found in the student's course mat
 _CITATION_GROUP = re.compile(r"[\[(]\s*S\d+(?:\s*[,;]\s*S?\d+)*\s*[\])]")
 
 
+_FULLWIDTH_CITATION = re.compile(r"【\s*(S\d+)[^】]*】")  # gpt-oss style: 【S2】 or 【S2†L1-L4】
+_DISPLAY_MATH = re.compile(r"\\\[(.+?)\\\]", re.DOTALL)  # \[ ... \]
+_INLINE_MATH = re.compile(r"\\\((.+?)\\\)", re.DOTALL)  # \( ... \)
+
+
+def tidy_markdown(text: str) -> str:
+    """Normalize model output so it renders and its citations can be checked.
+
+    Models differ in formatting: some cite as 【S2】 and write math between \\( \\) or \\[ \\],
+    which Markdown renderers that expect $...$ show as raw text.
+    """
+    text = _FULLWIDTH_CITATION.sub(r"[\1]", text)
+    text = _DISPLAY_MATH.sub(lambda m: f"$$\n{m.group(1).strip()}\n$$", text)
+    return _INLINE_MATH.sub(lambda m: f"${m.group(1).strip()}$", text)
+
+
 def build_prompt(question: str, hits: list[Hit]) -> str:
     if not hits:
         return f"{NO_EXCERPTS_NOTE}\n\nStudent question: {question}"
@@ -189,7 +205,7 @@ class AnswerEngine:
                     text.append(event.text)
                 yield event
             answer.thinking = "".join(thinking)
-            answer.text = "".join(text)
+            answer.text = tidy_markdown("".join(text))
             if answer.grounded:
                 answer.cited, answer.invalid_citations = extract_citations(
                     answer.text, len(answer.sources)
