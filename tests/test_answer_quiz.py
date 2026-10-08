@@ -165,7 +165,7 @@ def test_tidy_markdown_fixes_formats_seen_from_gpt_oss():
     tidy = tidy_markdown(raw)
 
     assert "$\\frac{TP}{TP+FP}$" in tidy
-    assert "$$\n\\text{Recall} = \\frac{80}{100}\n$$" in tidy
+    assert "$$\\text{Recall} = \\frac{80}{100}$$" in tidy
     assert "[S2]" in tidy and "[S1]" in tidy and "【" not in tidy
     assert extract_citations(tidy, num_sources=3)[0] == [2, 1]
 
@@ -175,3 +175,10 @@ def test_answer_text_is_tidied_so_fullwidth_citations_count(retriever: Retriever
     answer = AnswerEngine(retriever, llm, k=3, min_similarity=0.0).ask("median of sorted data")
     assert answer.text.endswith("[S1].")
     assert answer.cited == [1]
+
+
+def test_tidy_markdown_keeps_formulas_in_table_rows_on_one_line():
+    row = "| Precision | share correct | \\[ \\frac{TP}\n{TP+FP} \\] | high stakes |"
+    tidy = tidy_markdown(row)
+    assert tidy == "| Precision | share correct | $$\\frac{TP} {TP+FP}$$ | high stakes |"
+    assert "\n" not in tidy
