@@ -1,7 +1,8 @@
 """Multiple-choice quizzes at three difficulty levels, always written from a source.
 
 - **Course quiz** (`generate_quiz`): passages retrieved from your course materials.
-- **AnyQuiz** (`generate_anyquiz`): any topic; passages from the best-matching Wikipedia article.
+- **Quiz generator** (`generate_anyquiz`): any topic; passages from the best-matching
+  Wikipedia article.
 
 Both modes work the same way after that: the model writes questions using ONLY the passages
 and names the passage each question comes from. Then a separate source check shows each
@@ -115,8 +116,8 @@ class TopicNotCovered(BackOfTheBookError):
     def __init__(self, topic: str) -> None:
         super().__init__(
             ErrorCode.TOPIC_NOT_COVERED,
-            f'Your course materials don\'t cover "{topic}". Try AnyQuiz to get a quiz on any '
-            "topic from Wikipedia, or pick a topic from your notes or slides.",
+            f'Your course materials don\'t cover "{topic}". Try the Quiz generator to get a quiz '
+            "on any topic from Wikipedia, or pick a topic from your notes or slides.",
             details={"topic": topic},
         )
 
@@ -294,7 +295,7 @@ def generate_anyquiz(
     check: bool = True,
     source: WikipediaSource | None = None,
 ) -> Quiz:
-    """AnyQuiz: any topic, with questions from the best-matching Wikipedia article."""
+    """Quiz generator: any topic, with questions from the best-matching Wikipedia article."""
     topic, level = check_request(topic, n, difficulty)
     article = (source or WikipediaSource()).find_article(topic)
     passages = article_passages(article)

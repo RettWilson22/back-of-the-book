@@ -200,7 +200,7 @@ FOOTER = """
   Back of the Book, built by Rett Wilson &middot;
   <a href="https://github.com/RettWilson22/back-of-the-book">Source code on GitHub</a> &middot;
   Sample textbook: OpenStax <i>Principles of Data Science</i> (CC BY-NC-SA 4.0) &middot;
-  AnyQuiz text from Wikipedia (CC BY-SA 4.0)
+  Quiz generator text from Wikipedia (CC BY-SA 4.0)
 </div>
 """
 
@@ -341,7 +341,9 @@ def turn_record(answer: Answer) -> dict[str, object]:
 
 # --- Layout: tabs first, so the upload box can sit inside "Ask" ----------------------------
 
-ask_tab, course_tab, anyquiz_tab, about_tab = st.tabs(["Ask", "Course quiz", "AnyQuiz", "About"])
+ask_tab, course_tab, anyquiz_tab, about_tab = st.tabs(
+    ["Ask", "Course quiz", "Quiz generator", "About"]
+)
 about_body, about_settings = about_tab.container(), about_tab.container()
 
 if USE_SAMPLE and not (INDEX_DIR / "meta.json").exists():
@@ -694,8 +696,8 @@ with course_tab:
 
 with anyquiz_tab:
     st.markdown(
-        "**Any topic you like.** AnyQuiz looks up a reliable source on the topic and writes the "
-        "quiz from it, so every answer comes with a source you can check."
+        "**Any topic you like.** The Quiz generator looks up a reliable source on the topic and "
+        "writes the quiz from it, so every answer comes with a source you can check."
     )
     quiz_tab(
         "anyquiz",
@@ -722,7 +724,7 @@ answers from general knowledge and says so.
 **Course quiz.** Questions are written only from passages in your materials, and every
 question lists the passage it came from.
 
-**AnyQuiz.** For any topic, it finds the matching Wikipedia article and writes the quiz from
+**Quiz generator.** For any topic, it finds the matching Wikipedia article and writes the quiz from
 that article. Each question links to the section its answer comes from.
 
 **Answer checking.** After a quiz is written, a second, separate pass looks at each
