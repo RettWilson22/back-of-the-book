@@ -120,3 +120,19 @@ def test_adding_uploads_never_changes_the_shared_index(index: CorpusIndex):
     assert "secret.pdf" not in index.sources
     assert index.chunks == before_chunks
     assert np.array_equal(index.embeddings, before_vectors)
+
+
+def test_merge_combines_without_reembedding_and_later_parts_win(index: CorpusIndex):
+    mine = CorpusIndex.build(
+        [Chunk("notes.md#p1-0", "notes.md", 1, "My own notes.")], FakeEmbedder()
+    )
+    newer = CorpusIndex.build(
+        [Chunk("notes.md#p1-0", "notes.md", 1, "Edited notes.")], FakeEmbedder()
+    )
+
+    merged = CorpusIndex.merge([index, mine, newer])
+
+    assert set(merged.sources) == set(index.sources) | {"notes.md"}
+    assert [c.text for c in merged.chunks if c.source == "notes.md"] == ["Edited notes."]
+    assert len(merged.chunks) == len(merged.embeddings) == len(index.chunks) + 1
+    assert "notes.md" not in index.sources  # parts are untouched
