@@ -222,3 +222,16 @@ def test_unexpected_errors_are_reported_as_internal_errors(app, monkeypatch):
 
     assert not at.exception
     assert any("INTERNAL_ERROR" in c.value for c in at.caption)
+
+
+def test_api_key_is_read_from_streamlit_secrets(app, tmp_path, monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    at = AppTest.from_file(APP, default_timeout=30)
+    at.secrets["GROQ_API_KEY"] = "test-key-from-secrets"
+    app(FakeLLM())  # sets up the fake index and models
+    at.run()
+    import os
+
+    assert not at.exception
+    assert os.environ.get("GROQ_API_KEY") == "test-key-from-secrets"
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
