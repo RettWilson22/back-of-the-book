@@ -235,3 +235,36 @@ def test_api_key_is_read_from_streamlit_secrets(app, tmp_path, monkeypatch):
     assert not at.exception
     assert os.environ.get("GROQ_API_KEY") == "test-key-from-secrets"
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
+
+
+def uploaded(name: str, text: str):
+    """Stand-in for a processed upload, as stored in the session."""
+    from types import SimpleNamespace
+
+    from backofthebook.documents import Page
+
+    index = CorpusIndex.build(chunk_pages([Page(name, 1, text)]), FakeEmbedder())
+    return SimpleNamespace(name=name, index=index, pages=1, notes=[])
+
+
+def test_uploaded_documents_are_listed_used_by_default_and_removable(app):
+    at = app(FakeLLM("Your teacher is Dr. Rivera [S1]."))
+    at.session_state["docs"] = {
+        "syllabus.pdf": uploaded(
+            "syllabus.pdf", "Instructor: Dr. Maria Rivera, office hours Tuesdays."
+        )
+    }
+    at.run()
+
+    assert not at.exception
+    assert any(m.value == "**Your documents**" for m in at.markdown)
+    assert "syllabus.pdf" in at.button_group[0].options
+    assert any("Answering from syllabus.pdf" in c.value for c in at.caption)
+
+    at.button_group[0].select("syllabus.pdf").run()
+    next(b for b in at.button if b.key == "remove_syllabus.pdf").click().run()
+
+    assert not at.exception
+    assert at.session_state["docs"] == {}
+    assert "syllabus.pdf" not in at.button_group[0].options
+    assert any("Answering from all loaded documents" in c.value for c in at.caption)

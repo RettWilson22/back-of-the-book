@@ -11,6 +11,7 @@ import os
 import tempfile
 import urllib.parse
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 import streamlit as st
@@ -115,8 +116,30 @@ header[data-testid="stHeader"], footer, [data-testid="stToolbar"] { display: non
 [data-testid="stChatMessageAvatarAssistant"] { background: #22313f; color: #c9a24a; }
 .bb-thought { color: #6b6458; font-size: 0.88rem; white-space: pre-wrap; }
 
+/* Keep each uploaded document's remove button on the same line, even on phones. */
+.st-key-doc_list [data-testid="stHorizontalBlock"] { flex-wrap: nowrap; gap: 0.5rem; }
+.st-key-doc_list [data-testid="stColumn"] { min-width: 0; }
+.st-key-doc_list [data-testid="stColumn"]:last-child { flex: 0 0 auto; width: auto; }
+
 .bb-footer { margin-top: 3rem; padding: 1rem 0; border-top: 1px solid #cfc6b4;
   font-size: 0.85rem; color: #6b6458; }
+/* The full-width header bar must never let the page scroll sideways. */
+html, body, .stApp, [data-testid="stMain"] { overflow-x: hidden; }
+
+@media (max-width: 640px) {
+  .block-container { padding-left: 1rem; padding-right: 1rem; }
+  .bb-masthead { padding-top: 0.9rem; padding-bottom: 0.85rem; margin-bottom: 1.1rem; }
+  .bb-logo { gap: 10px; }
+  .bb-icon { width: 34px; height: 34px; }
+  .bb-brand { font-size: 1.65rem; white-space: nowrap; }
+  .bb-tagline { font-size: 0.66rem; letter-spacing: 1px; margin-top: 0.3rem; }
+  [data-testid="stTabs"] [role="tablist"] { gap: 2px; }
+  [data-testid="stTab"] { padding: 0.4rem 0.6rem; }
+  [data-testid="stTab"] p { font-size: 0.85rem; }
+  [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"])
+    [data-testid="stChatMessageContent"] { max-width: 88%; }
+  .bb-footer { font-size: 0.78rem; }
+}
 </style>
 """
 
@@ -184,31 +207,40 @@ def load_base_index() -> CorpusIndex | None:
         return None
 
 
-def add_uploads(
-    index: CorpusIndex | None, files: list[UploadedFile], embedder: Embedder
-) -> CorpusIndex | None:
-    """Index uploaded files under their original names so citations stay readable."""
-    pages = []
-    with tempfile.TemporaryDirectory() as tmp:
-        for upload in files:
-            path = Path(tmp) / upload.name
-            path.write_bytes(upload.getvalue())
-            try:
-                pages.extend(load_document(path))
-                if blank := unreadable_pages(path):
-                    listed = ", ".join(str(n) for n in blank[:10])
-                    st.warning(
-                        f"{upload.name}: page(s) {listed} have no readable text, probably "
-                        "because they're scanned images. The AI can't see what's on them."
-                    )
-            except Exception as e:  # a bad upload shouldn't take down the app
-                st.error(f"Couldn't read {upload.name}: {e}")
+@dataclass
+class Document:
+    """One uploaded file, processed once and kept only in this visitor's session."""
+
+    name: str
+    index: CorpusIndex
+    pages: int
+    notes: list[str]
+
+
+def process_upload(upload: UploadedFile, embedder: Embedder) -> Document | str:
+    """Read and index one uploaded file. Returns the document, or an error message."""
+    with tempfile.TemporaryDirectory() as tmp:  # deleted as soon as the file has been read
+        path = Path(tmp) / upload.name
+        path.write_bytes(upload.getvalue())
+        try:
+            pages = load_document(path)
+            blank = unreadable_pages(path)
+        except Exception as e:  # a bad upload shouldn't take down the app
+            return f"Couldn't read {upload.name}: {e}"
     chunks = chunk_pages(pages)
     if not chunks:
-        return index
-    if index is None:
-        return CorpusIndex.build(chunks, embedder)
-    return index.add(chunks, embedder)
+        return f"Couldn't find any text in {upload.name}. If it's a scan, it can't be read yet."
+    notes = []
+    if blank:
+        listed = ", ".join(str(n) for n in blank[:10])
+        notes.append(f"Page(s) {listed} have no readable text (probably scanned images).")
+    return Document(upload.name, CorpusIndex.build(chunks, embedder), len(pages), notes)
+
+
+def remove_document(name: str) -> None:
+    st.session_state.docs.pop(name, None)
+    picked = st.session_state.get("referenced_docs") or []
+    st.session_state.referenced_docs = [n for n in picked if n != name]
 
 
 def render_sources(numbered_hits: list[tuple[int, Hit]]) -> None:
@@ -263,20 +295,51 @@ if USE_SAMPLE and not (INDEX_DIR / "meta.json").exists():
 base_index = load_base_index()
 embedder, reranker = load_models(base_index.embedding_model if base_index else DEFAULT_MODEL)
 
+st.session_state.setdefault("docs", {})
+st.session_state.setdefault("uploader_round", 0)
+docs: dict[str, Document] = st.session_state.docs
+
 with ask_tab:
     uploads = st.file_uploader(
-        "Upload your own course materials (optional)",
+        "Add your own documents (optional)",
         type=[s.lstrip(".") for s in SUPPORTED_SUFFIXES],
         accept_multiple_files=True,
-        help="PDF slides or notes, PowerPoint decks, Markdown, or text. Your files are used "
-        "by Ask and Course quiz, and are only kept for this visit.",
+        key=f"uploader_{st.session_state.uploader_round}",
+        help="PDF slides or notes, PowerPoint decks, Markdown, or text. Your files are only "
+        "visible to you and are gone when you close or refresh the page.",
     )
-upload_key = tuple(sorted((u.name, u.size) for u in uploads or []))
-if st.session_state.get("upload_key") != upload_key:
-    with ask_tab, st.spinner("Reading your files..."):
-        st.session_state.index = add_uploads(base_index, uploads or [], embedder)
-    st.session_state.upload_key = upload_key
-index: CorpusIndex | None = st.session_state.index
+    if uploads:
+        with st.spinner("Reading your files..."):
+            for upload in uploads:
+                result = process_upload(upload, embedder)
+                if isinstance(result, str):
+                    st.session_state.upload_error = result
+                else:
+                    docs[result.name] = result
+        st.session_state.uploader_round += 1  # clears the upload box for the next file
+        st.rerun()
+    if error := st.session_state.pop("upload_error", None):
+        st.error(error)
+
+    if docs:
+        st.markdown("**Your documents**")
+        with st.container(key="doc_list"):
+            for doc in docs.values():
+                name_col, remove_col = st.columns([6, 1], vertical_alignment="center")
+                with name_col:
+                    st.markdown(f"**{doc.name}**")
+                    detail = f"{doc.pages} page{'s' if doc.pages != 1 else ''}"
+                    st.caption(" · ".join([detail, *doc.notes]))
+                remove_col.button(
+                    "✕",
+                    key=f"remove_{doc.name}",
+                    help=f"Remove {doc.name}",
+                    on_click=remove_document,
+                    args=(doc.name,),
+                )
+
+parts = ([base_index] if base_index else []) + [d.index for d in docs.values()]
+index: CorpusIndex | None = CorpusIndex.merge(parts) if parts else None
 
 if index is None:
     with ask_tab:
@@ -292,7 +355,7 @@ with ask_tab:
         help="Click a document to answer only from it. Click again to go back to the default.",
     )
     # Default scope: the student's own uploads if there are any, otherwise everything loaded.
-    uploaded_names = sorted({u.name for u in uploads or []} & set(index.sources))
+    uploaded_names = sorted(docs)
     scope_sources: list[str] | None = list(referenced) or uploaded_names or None
     scope = ", ".join(scope_sources) if scope_sources else "all loaded documents"
     st.caption(f"Answering from {scope}.")
@@ -488,7 +551,7 @@ with ask_tab:
             render_answer_footer(turn)
 
     new_turn = st.container()  # keeps the newest exchange above the input box
-    question = st.chat_input("Ask anything, or ask about your documents", max_chars=2000)
+    question = st.chat_input("Ask anything", max_chars=2000)
     if question:
         with new_turn:
             with st.chat_message("user"):

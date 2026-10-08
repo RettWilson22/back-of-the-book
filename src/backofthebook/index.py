@@ -99,6 +99,23 @@ class CorpusIndex:
             self.embedding_model,
         )
 
+    @classmethod
+    def merge(cls, parts: list[CorpusIndex]) -> CorpusIndex:
+        """Combine indexes without re-embedding. A later part replaces earlier chunks from the
+        same file. Returns a new index; the parts are not modified."""
+        if not parts:
+            raise IndexBuildError("nothing to merge")
+        if len({p.embedding_model for p in parts}) != 1:
+            raise IndexBuildError("cannot mix embedding models in one index")
+        chunks: list[Chunk] = []
+        vectors: list[np.ndarray] = []
+        for i, part in enumerate(parts):
+            later = {s for p in parts[i + 1 :] for s in p.sources}
+            keep = [j for j, c in enumerate(part.chunks) if c.source not in later]
+            chunks += [part.chunks[j] for j in keep]
+            vectors.append(part.embeddings[keep])
+        return cls(chunks, np.vstack(vectors), parts[0].embedding_model)
+
     def save(self, directory: Path) -> None:
         directory.mkdir(parents=True, exist_ok=True)
         with (directory / "chunks.jsonl").open("w", encoding="utf-8") as f:
