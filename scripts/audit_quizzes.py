@@ -22,7 +22,9 @@ import json
 import sys
 import time
 from collections import Counter
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any, TypeVar
 
 from backofthebook.errors import BackOfTheBookError
 from backofthebook.llm import LLMProvider, make_provider
@@ -56,7 +58,10 @@ from your own knowledge. Each question has exactly 4 choices with one correct an
 ["S1"]. Only ask about well-established facts."""
 
 
-def with_retries(action, attempts: int = 6):  # type: ignore[no-untyped-def]
+T = TypeVar("T")
+
+
+def with_retries(action: Callable[[], T], attempts: int = 6) -> T:
     """Retry rate limits and other retryable errors (the free Groq tier is rate limited)."""
     for attempt in range(attempts):
         try:
@@ -70,7 +75,7 @@ def with_retries(action, attempts: int = 6):  # type: ignore[no-untyped-def]
     raise AssertionError("unreachable")
 
 
-def memory_quiz(llm: LLMProvider, topic: str) -> list[dict]:
+def memory_quiz(llm: LLMProvider, topic: str) -> list[dict[str, Any]]:
     prompt = f"Topic: {topic}\nDifficulty: {DIFFICULTY_GUIDE[LEVEL]}\nWrite {N} questions."
     draft = with_retries(lambda: llm.generate(MEMORY_PROMPT, prompt, QuizDraft))
     return [
@@ -86,7 +91,7 @@ def memory_quiz(llm: LLMProvider, topic: str) -> list[dict]:
     ][:N]
 
 
-def sourced_quiz(llm: LLMProvider, topic: str) -> tuple[list[dict], dict]:
+def sourced_quiz(llm: LLMProvider, topic: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     quiz = with_retries(lambda: generate_anyquiz(llm, topic, N, LEVEL))
     rows = [
         {
@@ -125,7 +130,7 @@ def generate() -> None:
     print(f"Wrote {len(rows)} questions to {out}", file=sys.stderr)
 
 
-def read_jsonl(path: Path) -> list[dict]:
+def read_jsonl(path: Path) -> list[dict[str, Any]]:
     with path.open(encoding="utf-8") as f:
         return [json.loads(line) for line in f if line.strip()]
 

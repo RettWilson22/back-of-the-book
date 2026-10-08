@@ -1,4 +1,4 @@
-"""Back of the Book web app: ask questions with citations, take practice quizzes, see the eval.
+"""Back of the Book web app: ask questions with citations and take practice quizzes.
 
 Run with:  streamlit run app/streamlit_app.py
 """
@@ -250,21 +250,23 @@ class Document:
 def process_upload(upload: UploadedFile, embedder: Embedder) -> Document | str:
     """Read and index one uploaded file. Returns the document, or an error message."""
     with tempfile.TemporaryDirectory() as tmp:  # deleted as soon as the file has been read
-        path = Path(tmp) / upload.name
+        name = Path(upload.name).name  # never trust a path in an uploaded file's name
+        path = Path(tmp) / name
         path.write_bytes(upload.getvalue())
         try:
             pages = load_document(path)
             blank = unreadable_pages(path)
-        except Exception as e:  # a bad upload shouldn't take down the app
-            return f"Couldn't read {upload.name}: {e}"
+        except Exception:  # a bad upload shouldn't take down the app
+            logger.exception("couldn't read upload %s", name)
+            return f"Couldn't read {name}. The file may be damaged or password-protected."
     chunks = chunk_pages(pages)
     if not chunks:
-        return f"Couldn't find any text in {upload.name}. If it's a scan, it can't be read yet."
+        return f"Couldn't find any text in {name}. If it's a scan, it can't be read yet."
     notes = []
     if blank:
         listed = ", ".join(str(n) for n in blank[:10])
         notes.append(f"Page(s) {listed} have no readable text (probably scanned images).")
-    return Document(upload.name, CorpusIndex.build(chunks, embedder), len(pages), notes)
+    return Document(name, CorpusIndex.build(chunks, embedder), len(pages), notes)
 
 
 def remove_document(name: str) -> None:
@@ -401,8 +403,9 @@ with about_settings:
     choice = st.selectbox("Answers and quizzes are written by", list(provider_names), index=0)
     try:
         llm = make_provider(provider_names[choice])
-    except Exception as e:
-        st.error(f"Couldn't start {choice}: {e}")
+    except Exception:
+        logger.exception("couldn't start provider %s", choice)
+        st.error(f"Couldn't start {choice}. Using matching passages only for now.")
         llm = make_provider("extractive")
     friendly = {"groq": "Groq", "claude": "Claude", "extractive": "No AI (matching passages only)"}
     st.caption(f"Currently using: {friendly.get(llm.name, llm.name)}")
@@ -413,7 +416,10 @@ engine = AnswerEngine(retriever, llm)
 
 def show_error(error: BackOfTheBookError) -> None:
     hint = " Trying again may work." if error.retryable else ""
-    (st.info if error.code in _INPUT_ERRORS else st.error)(error.message + hint)
+    if error.code in _INPUT_ERRORS:  # the user's own typo: no need for a code
+        st.info(error.message)
+        return
+    st.error(error.message + hint)
     st.caption(f"Error code: `{error.code}`")
 
 
@@ -469,8 +475,9 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
         )
         count = st.slider("Number of questions", 3, MAX_QUESTIONS, 5)
         submitted = st.form_submit_button("Generate quiz", type="primary")
+    status = st.empty()  # one slot, so an old error disappears while the next quiz is written
     if submitted:
-        with st.spinner("Reading the sources and writing your quiz..."):
+        with status.container(), st.spinner("Reading the sources and writing your quiz..."):
             quiz = guarded(lambda: generate(topic, count, Difficulty(level.lower())))
         if quiz is not None:
             st.session_state[f"{key}_quiz"] = quiz
@@ -481,7 +488,8 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
     if quiz is None:
         return
     quiz_id = st.session_state[f"{key}_id"]
-    st.subheader(f"{quiz.topic} · {quiz.difficulty.value.title()}")
+    title = quiz.topic[:1].upper() + quiz.topic[1:]
+    st.subheader(f"{title} · {quiz.difficulty.value.title()}")
     source = f"[{quiz.source_title}]({quiz.source_url})" if quiz.source_url else quiz.source_title
     note = f"Written from {source}."
     if quiz.checked:
@@ -505,13 +513,15 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
         st.subheader(f"Score: {score} / {len(quiz.questions)}")
         for i, (pick, q) in enumerate(pairs, start=1):
             correct = q.choices[q.answer_index]
-            mark = (
-                '<span class="bb-mark bb-right">Correct</span>'
-                if pick == correct
-                else '<span class="bb-mark bb-wrong">Incorrect</span>'
-            )
+            if pick == correct:
+                mark = '<span class="bb-mark bb-right">Correct</span>'
+                chose = ""
+            else:
+                mark = '<span class="bb-mark bb-wrong">Incorrect</span>'
+                chose = f" You chose *{pick}*." if pick else " Not answered."
             st.markdown(
-                f"{mark} **{i}.** Answer: *{correct}*. {q.explanation}", unsafe_allow_html=True
+                f"{mark} **{i}.**{chose} Answer: *{correct}*. {q.explanation}",
+                unsafe_allow_html=True,
             )
             st.caption(
                 f"Source: {source_links(quiz, q)} · [Report a problem]({report_link(quiz, q)})"
@@ -561,6 +571,10 @@ def stream_reply(question: str, sources: list[str] | None) -> dict[str, object] 
     return record
 
 
+def ask_example(question: str) -> None:
+    st.session_state.pending_question = question
+
+
 with ask_tab:
     st.session_state.setdefault("turns", [])
     if st.session_state.turns and st.button("New chat", key="new_chat"):
@@ -580,8 +594,26 @@ with ask_tab:
             st.markdown(turn["text"])
             render_answer_footer(turn)
 
+    if not st.session_state.turns and "pending_question" not in st.session_state:
+        if docs:
+            st.markdown("Ask anything about your documents, or anything else.")
+        else:
+            st.markdown(
+                "A sample data science textbook is loaded so you can try it right away. Ask "
+                "about it, ask anything else, or add your own notes and slides above."
+            )
+            examples = [
+                "What is the difference between mean and median?",
+                "Explain a p-value in simple terms",
+                "Solve: what is the standard deviation of 2, 4, 4, 4, 5, 5, 7, 9?",
+            ]
+            with st.container(key="examples"):
+                for n, example in enumerate(examples):
+                    st.button(example, key=f"example_{n}", on_click=ask_example, args=(example,))
+
     new_turn = st.container()  # keeps the newest exchange above the input box
-    question = st.chat_input("Ask anything", max_chars=2000)
+    typed = st.chat_input("Ask anything", max_chars=2000)
+    question = typed or st.session_state.pop("pending_question", None)
     if question:
         with new_turn:
             with st.chat_message("user"):
@@ -594,7 +626,10 @@ with ask_tab:
 # --- Quizzes -------------------------------------------------------------------------------
 
 with course_tab:
-    st.markdown("Questions written **only from your course materials**, each with its source.")
+    st.markdown(
+        "Questions written **only from your course materials**, each with its source. Uses the "
+        "sample data science textbook plus any documents you add in **Ask**."
+    )
     quiz_tab(
         "course",
         "e.g. hypothesis testing, k-means clustering",
@@ -612,7 +647,7 @@ with anyquiz_tab:
         lambda topic, n, level: generate_anyquiz(llm, topic, n, level),
     )
 
-# --- Evaluation ----------------------------------------------------------------------------
+# --- About ----------------------------------------------------------------------------
 
 with about_body:
     st.markdown(
