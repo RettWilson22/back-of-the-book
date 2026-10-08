@@ -263,7 +263,8 @@ def test_uploaded_documents_are_listed_used_by_default_and_removable(app):
     at.run()
 
     assert not at.exception
-    assert any(m.value == "**Your documents**" for m in at.markdown)
+    assert any(m.value == "**Documents**" for m in at.markdown)
+    assert any(b.key == "remove_syllabus.pdf" and b.label == "Remove" for b in at.button)
     assert "syllabus.pdf" in at.button_group[0].options
     assert any("Answering from syllabus.pdf" in c.value for c in at.caption)
 
@@ -315,3 +316,39 @@ def test_unanswered_questions_are_marked_skipped(app):
 
     assert any("Skipped" in m.value for m in at.markdown)
     assert not any("You chose" in m.value for m in at.markdown)
+
+
+def test_sample_can_be_hidden_while_there_are_uploads_and_brought_back(app):
+    at = app(FakeLLM("Your teacher is Dr. Rivera [S1]."))
+    at.session_state["docs"] = {
+        "syllabus.pdf": uploaded(
+            "syllabus.pdf", "Instructor: Dr. Maria Rivera, office hours Tuesdays."
+        )
+    }
+    at.run()
+    base_sources = [o for o in at.button_group[0].options if o != "syllabus.pdf"]
+    assert base_sources
+
+    next(b for b in at.button if b.key == "hide_sample").click().run()
+    assert not at.exception
+    assert at.button_group[0].options == ["syllabus.pdf"]
+
+    next(b for b in at.button if b.key == "show_sample").click().run()
+    assert not at.exception, at.exception
+    assert set(base_sources) <= set(at.button_group[0].options)
+
+
+def test_sample_comes_back_when_the_last_upload_is_removed(app):
+    at = app(FakeLLM())
+    at.session_state["docs"] = {
+        "syllabus.pdf": uploaded(
+            "syllabus.pdf", "Instructor: Dr. Maria Rivera, office hours Tuesdays."
+        )
+    }
+    at.run()
+    next(b for b in at.button if b.key == "hide_sample").click().run()
+    next(b for b in at.button if b.key == "remove_syllabus.pdf").click().run()
+
+    assert not at.exception
+    assert at.button_group[0].options  # the built-in material is back, so Ask still works
+    assert not any(b.key == "hide_sample" for b in at.button)  # nothing to fall back on

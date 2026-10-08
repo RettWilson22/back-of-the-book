@@ -5,6 +5,7 @@ Run with:  streamlit run app/streamlit_app.py
 
 from __future__ import annotations
 
+import functools
 import html
 import logging
 import os
@@ -71,6 +72,7 @@ from backofthebook.quiz import (
     generate_quiz,
 )
 from backofthebook.retrieval import CrossEncoderReranker, Hit, Retriever
+from backofthebook.sample import FILENAME as SAMPLE_FILE
 from backofthebook.sample import build_sample_index
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -271,6 +273,28 @@ def process_upload(upload: UploadedFile, embedder: Embedder) -> Document | str:
     return Document(name, CorpusIndex.build(chunks, embedder), len(pages), notes)
 
 
+def label(source: str) -> str:
+    """How a document is named on screen."""
+    return "Sample textbook" if source == SAMPLE_FILE else source
+
+
+def set_sample_hidden(hidden: bool) -> None:
+    st.session_state.sample_hidden = hidden
+    picked = st.session_state.get("referenced_docs") or []
+    st.session_state.referenced_docs = [n for n in picked if n != SAMPLE_FILE]
+
+
+def document_row(
+    key: str, title: str, detail: str, button: str, action: Callable[[], None], help: str
+) -> None:
+    """One document in the list: its name and details, with its button on the same line."""
+    with st.container(border=True):
+        name_col, button_col = st.columns([6, 1], vertical_alignment="center")
+        name_col.markdown(f"**{title}**")
+        name_col.caption(detail)
+        button_col.button(button, key=key, help=help, on_click=action)
+
+
 def remove_document(name: str) -> None:
     st.session_state.docs.pop(name, None)
     picked = st.session_state.get("referenced_docs") or []
@@ -355,24 +379,51 @@ with ask_tab:
     if error := st.session_state.pop("upload_error", None):
         st.error(error)
 
-    if docs:
-        st.markdown("**Your documents**")
+    # The sample textbook can be hidden only while there are uploads to answer from instead.
+    hide_sample = bool(st.session_state.get("sample_hidden")) and bool(docs)
+    show_sample = base_index is not None and not hide_sample
+    if docs or show_sample:
+        st.markdown("**Documents**")
         with st.container(key="doc_list"):
             for doc in docs.values():
-                name_col, remove_col = st.columns([6, 1], vertical_alignment="center")
-                with name_col:
-                    st.markdown(f"**{doc.name}**")
-                    detail = f"{doc.pages} page{'s' if doc.pages != 1 else ''}"
-                    st.caption(" · ".join([detail, *doc.notes]))
-                remove_col.button(
-                    "✕",
-                    key=f"remove_{doc.name}",
-                    help=f"Remove {doc.name}",
-                    on_click=remove_document,
-                    args=(doc.name,),
+                detail = f"{doc.pages} page{'s' if doc.pages != 1 else ''} · only visible to you"
+                document_row(
+                    f"remove_{doc.name}",
+                    doc.name,
+                    " · ".join([detail, *doc.notes]),
+                    "Remove",
+                    functools.partial(remove_document, doc.name),
+                    f"Remove {doc.name}",
                 )
+            if show_sample and base_index is not None:
+                built_in = base_index.sources
+                title = (
+                    "Sample textbook: OpenStax Principles of Data Science"
+                    if built_in == [SAMPLE_FILE]
+                    else ", ".join(built_in)
+                )
+                detail = "Built in for every visitor, so you can try the app right away."
+                if docs:
+                    document_row(
+                        "hide_sample",
+                        title,
+                        detail,
+                        "Hide",
+                        lambda: set_sample_hidden(True),
+                        "Stop using the sample textbook (just for you)",
+                    )
+                else:
+                    with st.container(border=True):
+                        st.markdown(f"**{title}**")
+                        st.caption(detail)
+    if hide_sample:
+        st.button(
+            "Use the sample textbook again",
+            key="show_sample",
+            on_click=lambda: set_sample_hidden(False),
+        )
 
-parts = ([base_index] if base_index else []) + [d.index for d in docs.values()]
+parts = ([base_index] if base_index and not hide_sample else []) + [d.index for d in docs.values()]
 index: CorpusIndex | None = CorpusIndex.merge(parts) if parts else None
 
 if index is None:
@@ -384,6 +435,7 @@ with ask_tab:
     referenced = st.pills(
         "Reference a document",
         index.sources,
+        format_func=label,
         selection_mode="multi",
         key="referenced_docs",
         help="Click a document to answer only from it. Click again to go back to the default.",
@@ -391,7 +443,7 @@ with ask_tab:
     # Default scope: the student's own uploads if there are any, otherwise everything loaded.
     uploaded_names = sorted(docs)
     scope_sources: list[str] | None = list(referenced) or uploaded_names or None
-    scope = ", ".join(scope_sources) if scope_sources else "all loaded documents"
+    scope = ", ".join(map(label, scope_sources)) if scope_sources else "all loaded documents"
     st.caption(f"Answering from {scope}.")
 
 provider_names = {
