@@ -1,10 +1,12 @@
 """Answer questions in a conversation, grounded in course materials when they cover it.
 
-For each question the engine checks whether the materials (optionally just the documents the
-student picked) contain anything close to it:
+When the question is about specific documents (the student's uploads, or ones they clicked)
+and those are short, the model gets the WHOLE text, so it can answer anything in them, like
+"who is the teacher?". For longer documents, or the whole library, it works like this:
 - if they do, the closest passages are added to the student's message, labeled [S1]..[Sn],
   and the model must cite them. After generation every citation is checked against the
-  passages actually provided; citations to sources that don't exist are reported, not shown;
+  passages actually provided; citations to sources that don't exist are reported, not shown.
+  The first page of each chosen document (title, author, course details) is always included;
 - if they don't, the model answers from general knowledge and must say so up front, rather
   than refusing or pretending the materials cover it.
 
@@ -27,9 +29,12 @@ SYSTEM_PROMPT = """You are a friendly, sharp tutor helping a student study.
 How to answer:
 - Solve problems properly: show your reasoning, work through calculations step by step, and \
 give a clear final answer. Use Markdown, including lists and LaTeX math ($...$) where helpful.
-- When the student's message includes course-material excerpts, base your answer on them and \
-cite the excerpt behind each claim in square brackets, exactly like [S1] or [S2][S3]. You may \
-add your own explanation or worked steps, but don't contradict the excerpts.
+- When the student's message includes course-material excerpts, read them carefully and base \
+your answer on them. Cite the excerpt behind each claim in square brackets, exactly like [S1] or \
+[S2][S3]. Look for the answer under any wording: a "teacher" may be listed as instructor, \
+professor, or lecturer; a "due date" may appear in a schedule table. You may add your own \
+explanation or worked steps, but don't contradict the excerpts. If the excerpts truly don't \
+contain the answer, say so in one sentence, then help from general knowledge without citations.
 - When the message says no relevant excerpts were found, start your answer with: \
 "This isn't covered in your materials, so here's a general answer." Then answer from general \
 knowledge, and don't use [S1]-style citations.
@@ -109,6 +114,7 @@ class AnswerEngine:
         min_similarity: float = DEFAULT_MIN_SIMILARITY,
         mode: Mode = Mode.HYBRID_RERANK,
         max_history: int = 6,
+        full_text_words: int = 3000,
     ) -> None:
         self.retriever = retriever
         self.llm = llm
@@ -116,10 +122,31 @@ class AnswerEngine:
         self.min_similarity = min_similarity
         self.mode = mode if retriever.reranker is not None else Mode.HYBRID
         self.max_history = max_history
+        # Chosen documents up to this many words are given to the model in full. ~3,000 words
+        # is about 4,000 tokens, which leaves room for the conversation within the per-minute
+        # token limits of free API tiers.
+        self.full_text_words = full_text_words
 
     def is_in_scope(self, question: str, sources: Collection[str] | None = None) -> bool:
         """Whether the materials contain anything semantically close to the question."""
         return self.retriever.top_similarity(question, sources) >= self.min_similarity
+
+    def select_passages(self, query: str, sources: Collection[str] | None) -> list[Hit]:
+        """The passages the model will read for this question."""
+        if sources:
+            chosen = [c for c in self.retriever.index.chunks if c.source in set(sources)]
+            if sum(len(c.text.split()) for c in chosen) <= self.full_text_words:
+                return [Hit(c, 1.0) for c in chosen]  # short documents: read all of it
+        if not self.is_in_scope(query, sources):
+            return []
+        hits = self.retriever.search(query, k=self.k, mode=self.mode, sources=sources)
+        if sources:  # always include each chosen document's first page (title, names, dates)
+            seen = {h.chunk.id for h in hits}
+            for source in sorted(set(sources)):
+                first = next((c for c in self.retriever.index.chunks if c.source == source), None)
+                if first is not None and first.id not in seen:
+                    hits.append(Hit(first, 0.0))
+        return hits
 
     def stream(
         self,
@@ -134,9 +161,7 @@ class AnswerEngine:
         """
         history = (history or [])[-self.max_history :]
         answer = Answer(question)
-        query = retrieval_query(question, history)
-        if self.is_in_scope(query, sources):
-            answer.sources = self.retriever.search(query, k=self.k, mode=self.mode, sources=sources)
+        answer.sources = self.select_passages(retrieval_query(question, history), sources)
         answer.grounded = bool(answer.sources)
 
         if not answer.grounded and self.llm.name == "extractive":
