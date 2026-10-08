@@ -63,8 +63,14 @@ def tidy_markdown(text: str) -> str:
     which Markdown renderers that expect $...$ show as raw text.
     """
     text = _FULLWIDTH_CITATION.sub(r"[\1]", text)
-    text = _DISPLAY_MATH.sub(lambda m: f"$$\n{m.group(1).strip()}\n$$", text)
-    return _INLINE_MATH.sub(lambda m: f"${m.group(1).strip()}$", text)
+    # Formulas are kept on one line: a line break inside a Markdown table cell would end the
+    # table row and break the rest of the answer.
+    text = _DISPLAY_MATH.sub(lambda m: f"$${_one_line(m.group(1))}$$", text)
+    return _INLINE_MATH.sub(lambda m: f"${_one_line(m.group(1))}$", text)
+
+
+def _one_line(math: str) -> str:
+    return " ".join(math.split())
 
 
 def build_prompt(question: str, hits: list[Hit]) -> str:
