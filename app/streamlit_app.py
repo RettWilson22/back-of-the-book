@@ -18,11 +18,35 @@ from pathlib import Path
 # Always import the package from this repo's src/, not a copy installed earlier. Hosts like
 # Streamlit Community Cloud install requirements once and only reinstall when requirements.txt
 # changes, so an installed copy can fall behind the app code after a push.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+SRC = Path(__file__).resolve().parents[1] / "src"
+sys.path.insert(0, str(SRC))
 
 import streamlit as st
 from streamlit.errors import StreamlitSecretNotFoundError
 from streamlit.runtime.uploaded_file_manager import UploadedFile
+
+
+def reload_package_if_updated() -> None:
+    """After a deploy, drop stale copies of the package so the new code is imported.
+
+    Streamlit keeps imported modules in memory between runs and only reloads files it is
+    watching, so a push that changes src/ but not this file would keep running old code.
+    The newest src/ timestamp is remembered process-wide; when it changes, the package's
+    modules are removed from sys.modules (re-imported fresh below) and cached models and
+    indexes built from the old classes are cleared.
+    """
+    newest = max(p.stat().st_mtime for p in (SRC / "backofthebook").glob("*.py"))
+    holder = sys.modules.setdefault("_backofthebook_src_stamp", type(sys)("stamp"))
+    previous = getattr(holder, "stamp", None)
+    if previous is not None and newest != previous:
+        stale = [m for m in sys.modules if m == "backofthebook" or m.startswith("backofthebook.")]
+        for name in stale:
+            del sys.modules[name]
+        st.cache_resource.clear()
+    holder.stamp = newest  # type: ignore[attr-defined]
+
+
+reload_package_if_updated()
 
 from backofthebook.answer import Answer, AnswerEngine, Turn, tidy_markdown
 from backofthebook.chunking import chunk_pages
