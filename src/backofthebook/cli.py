@@ -1,4 +1,4 @@
-"""Command-line interface: `backofthebook ingest | ask | quiz | eval`."""
+"""Command-line interface: `backofthebook ingest | ask | quiz | anyquiz | eval`."""
 
 from __future__ import annotations
 

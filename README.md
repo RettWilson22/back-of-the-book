@@ -43,9 +43,9 @@ Type any topic (*Pokémon*, *the NFL*, *the French Revolution*), pick **Easy**, 
 
 | Difficulty | What the questions test |
 |---|---|
-| Easy | Recall of basic facts and definitions; wrong choices are clearly wrong |
+| Easy | The best-known, central facts; four clearly different choices |
 | Medium | Understanding and application; plausible wrong choices |
-| Hard | Multi-step reasoning and edge cases; wrong choices based on common misconceptions |
+| Hard | Lesser-known details, multi-step reasoning, and edge cases; wrong choices based on common misconceptions |
 
 **Every quiz comes from a source.** An earlier version wrote quizzes from the model's memory, and live testing on niche topics (Super Mario Galaxy) produced wrong answer keys. A second pass that re-answered from memory couldn't catch them, because a model that's confidently wrong is wrong both times. So AnyQuiz now finds the topic's Wikipedia article (skipping "may refer to" pages), splits it into passages covering every section, and writes questions only from those passages. Each question must cite the passage that states its answer.
 
@@ -55,7 +55,7 @@ If a question still looks wrong, **Report a problem** under it opens a pre-fille
 
 ## Error codes
 
-Every failure is a `BackOfTheBookError` ([`errors.py`](src/backofthebook/errors.py)) with a stable **code**, a **message** that's safe to show users, a **retryable** flag, and optional machine-readable **details** (such as the provider's HTTP status). The web app shows the message and the code. The CLI prints `Error [CODE]: message` and exits with the category's exit code.
+Every failure is a `BackOfTheBookError` ([`errors.py`](src/backofthebook/errors.py)) with a stable **code**, a **message** that's safe to show users, a **retryable** flag, and optional machine-readable **details** (such as the provider's HTTP status). The web app shows the message, plus the code for anything that isn't a simple input mistake. The CLI prints `Error [CODE]: message` and exits with the category's exit code.
 
 | Code | When | Retryable | CLI exit |
 |---|---|---|---|
@@ -64,6 +64,8 @@ Every failure is a `BackOfTheBookError` ([`errors.py`](src/backofthebook/errors.
 | `INVALID_QUESTION_COUNT` | Not 1–10 questions | no | 2 |
 | `INVALID_DIFFICULTY` | Not easy / medium / hard | no | 2 |
 | `TOPIC_NOT_COVERED` | Course quiz topic isn't in the loaded materials | no | 3 |
+| `SOURCE_NOT_FOUND` | No Wikipedia article matches the AnyQuiz topic | no | 3 |
+| `SOURCE_UNAVAILABLE` | Wikipedia couldn't be reached | yes | 5 |
 | `NO_LLM_CONFIGURED` | No `GROQ_API_KEY` or `ANTHROPIC_API_KEY` | no | 4 |
 | `LLM_AUTH_FAILED` | API key rejected | no | 4 |
 | `LLM_RATE_LIMITED` | Provider rate limit | yes | 5 |
@@ -71,7 +73,7 @@ Every failure is a `BackOfTheBookError` ([`errors.py`](src/backofthebook/errors.
 | `LLM_REQUEST_REJECTED` | Provider 4xx (e.g. invalid model) | no | 5 |
 | `LLM_REFUSED` | Model declined the request | no | 5 |
 | `LLM_BAD_RESPONSE` | Malformed or truncated response, even after one repair attempt | yes | 5 |
-| `NO_VALID_QUESTIONS` | Nothing usable survived validation and the double-check | yes | 6 |
+| `NO_VALID_QUESTIONS` | Nothing usable survived validation and the source check | yes | 6 |
 | `INTERNAL_ERROR` | An unexpected bug (logged with a traceback) | no | 1 |
 
 Invalid input is rejected **before** any API call. A test checks that every code has a catalog entry.
@@ -95,7 +97,8 @@ Invalid input is rejected **before** any API call. A test checks that every code
         ▼
  quiz.py    course quiz: same retrieval → structured JSON quiz → each question validated
             (4 distinct choices, valid answer, cites a real passage) or dropped
-            AnyQuiz: topic + difficulty → quiz from model knowledge → double-check pass
+            AnyQuiz: topic → Wikipedia article (wiki.py) → same quiz pipeline
+            both: a blind source check re-answers each question; mismatches are dropped
 ```
 
 | Module | Responsibility |
@@ -106,7 +109,9 @@ Invalid input is rejected **before** any API call. A test checks that every code
 | [`retrieval.py`](src/backofthebook/retrieval.py) | Four retrieval modes behind one interface, so the eval compares them on identical inputs. |
 | [`llm.py`](src/backofthebook/llm.py) | Claude, Groq, and offline providers behind one small interface. |
 | [`answer.py`](src/backofthebook/answer.py) | Conversation memory, relevance check, prompt, streaming reasoning and answer, citation validation. |
-| [`quiz.py`](src/backofthebook/quiz.py) | Course quiz and AnyQuiz, difficulty levels, validation, double-check. |
+| [`quiz.py`](src/backofthebook/quiz.py) | Course quiz and AnyQuiz, difficulty levels, validation, source check. |
+| [`wiki.py`](src/backofthebook/wiki.py) | Finds a topic's Wikipedia article (skipping disambiguation pages) and splits it into passages covering every section. |
+| [`sample.py`](src/backofthebook/sample.py) | Downloads and indexes the sample textbook. |
 | [`errors.py`](src/backofthebook/errors.py) | Error codes, messages, retryability, and CLI exit codes. |
 | [`evaluation.py`](src/backofthebook/evaluation.py) | Recall@k, MRR, and off-topic metrics. |
 | [`app/streamlit_app.py`](app/streamlit_app.py) | Web UI: chat with sources, course quiz, AnyQuiz, grading, and a plain-language About page. |
@@ -125,13 +130,13 @@ Invalid input is rejected **before** any API call. A test checks that every code
 
 **Live demo: https://backofthebook.streamlit.app**
 
-It's preloaded with the sample textbook. Ask a question, or open **Practice quiz** and pick a topic. You can also upload your own slides or notes in the sidebar; they stay in your session only.
+It's preloaded with the sample textbook. Ask a question (or click one of the examples), open **Course quiz** or **AnyQuiz** and pick a topic, or add your own slides or notes at the top of **Ask**. Uploaded files stay in your session only, and the model provider can be changed under **About → Settings**.
 
 ## Getting started
 
 ```bash
-git clone https://github.com/RettWilson22/back-of-the-book && cd backofthebook
-python3.12 -m venv .venv && source .venv/bin/activate
+git clone https://github.com/RettWilson22/back-of-the-book && cd back-of-the-book
+python3.12 -m venv .venv          # Python 3.11 or newer && source .venv/bin/activate
 pip install -e ".[groq,claude,app,dev]"
 ```
 
@@ -155,7 +160,7 @@ backofthebook anyquiz "Super Mario Galaxy" -d easy          # any topic
 backofthebook eval                                         # reproduce the table above, in seconds
 ```
 
-Use your own materials with `backofthebook ingest path/to/slides/`, or upload files in the web app's sidebar.
+Use your own materials with `backofthebook ingest path/to/slides/`, or upload files at the top of the web app's **Ask** tab.
 
 | Setting | Default |
 |---|---|
@@ -173,22 +178,22 @@ Use your own materials with `backofthebook ingest path/to/slides/`, or upload fi
 ## Testing
 
 ```bash
-pytest                 # 118 tests, about 15 s, no downloads or API keys needed (fake models and LLM)
+pytest                 # 147 tests, about 10 s, no downloads or API keys needed (fake models and LLM)
 pytest -m slow         # real embedding/reranking models; includes a guard that fails
                        # if textbook Recall@10 drops below 95% or MRR below 0.80
 ruff check . && mypy src app/streamlit_app.py
 ```
 
-The fast tests cover every module (96% line coverage), every error code, the CLI end to end including exit codes, and the web app through Streamlit's `AppTest`: asking, follow-up questions, referencing a document, reasoning display, general-knowledge labeling, taking and grading both kinds of quiz, and how errors are shown. CI runs lint, strict type checking, and tests on every push.
+The fast tests cover every module (96% line coverage of `src/`), every error code, the CLI end to end including exit codes, and the web app through Streamlit's `AppTest`: asking, follow-up questions, referencing a document, reasoning display, general-knowledge labeling, taking and grading both kinds of quiz, and how errors are shown. CI runs lint, strict type checking, and tests on every push.
 
 ## Limitations
 
 - **Live LLM calls aren't part of the test suite.** Claude and Groq are tested against their SDK interfaces with fake clients (exact request parameters, error handling, refusals). Answer *quality* hasn't been evaluated, only retrieval.
-- **AnyQuiz's double-check reduces wrong answer keys but doesn't eliminate them.** If the model is confidently wrong both times, the error survives. Its accuracy hasn't been measured.
+- **Sourcing and the source check reduce wrong answer keys but don't eliminate them.** A question can still be ambiguous, or the source itself can be wrong. Answer-key accuracy hasn't been measured yet; [`scripts/audit_quizzes.py`](scripts/audit_quizzes.py) generates quizzes on fixed topics (sourced vs. from memory) for grading by hand.
 - **Scanned PDFs need OCR**, which isn't included. Image-only pages are skipped.
 - **Printed page detection** looks for headers/footers like "12 • Chapter title". Documents without them fall back to PDF page numbers.
 - **Evaluation scope:** one textbook, AI-drafted questions reviewed by one person, single-page labels. See [`eval/README.md`](eval/README.md).
 
 ## License
 
-Code: MIT. Evaluation questions and the bundled sample index: CC BY-NC-SA 4.0, as derivatives of the OpenStax textbook ([eval](eval/README.md), [data](data/README.md)). The textbook PDF itself isn't redistributed here.
+Code: MIT. Evaluation questions and the bundled sample index: CC BY-NC-SA 4.0, as derivatives of the OpenStax textbook ([eval](eval/README.md), [data](data/README.md)). The textbook PDF itself isn't redistributed here. AnyQuiz quizzes are written from Wikipedia text, available under CC BY-SA 4.0; each question links to its article.

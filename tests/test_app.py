@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from conftest import TOY_PAGES, FakeEmbedder, FakeLLM, FakeReranker, FakeWikipedia
@@ -36,6 +37,11 @@ def app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         return at
 
     return start
+
+
+def quiz_buttons(at: AppTest) -> list[Any]:
+    """Buttons other than the Ask tab's example questions, in page order."""
+    return [b for b in at.button if not (b.key or "").startswith("example_")]
 
 
 def test_app_shows_loaded_materials_as_clickable_documents(app):
@@ -129,7 +135,7 @@ def test_course_quiz_generates_checks_and_grades_answers(app):
     at = app(llm)
     at.text_input[0].set_value("k-means clustering")
     at.radio[0].set_value("Hard")
-    at.button[0].click().run()  # "Generate quiz" in the course tab
+    quiz_buttons(at)[0].click().run()  # "Generate quiz" in the course tab
 
     assert "HARD" in llm.prompts[0][1]
     radio = question_radio(at, "What does k-means assign points to?")
@@ -148,11 +154,11 @@ def test_course_quiz_generates_checks_and_grades_answers(app):
 def test_course_quiz_on_off_topic_subject_points_to_anyquiz(app):
     at = app(FakeLLM(structured=QuizDraft(questions=[])))
     at.text_input[0].set_value("volcano eruption lava")
-    at.button[0].click().run()
+    quiz_buttons(at)[0].click().run()
 
     assert not at.exception
     assert any("don't cover" in i.value and "AnyQuiz" in i.value for i in at.info)
-    assert any("TOPIC_NOT_COVERED" in c.value for c in at.caption)
+    assert not any("TOPIC_NOT_COVERED" in c.value for c in at.caption)  # a hint, not a fault
 
 
 GALAXY = (
@@ -174,7 +180,7 @@ def test_anyquiz_writes_from_wikipedia_checks_and_grades(app, monkeypatch):
     wrong_key = kmeans_question(question="A question with a bad answer key?", sources=["S1"])
     at = app(quiz_llm([star, wrong_key], answers=[0, 2]))
     at.text_input[1].set_value("mario galaxy")
-    at.button[1].click().run()  # "Generate quiz" in the AnyQuiz tab
+    quiz_buttons(at)[1].click().run()  # "Generate quiz" in the AnyQuiz tab
 
     assert not at.exception
     assert not any("bad answer key" in r.label for r in at.radio)  # dropped by the source check
@@ -191,11 +197,11 @@ def test_anyquiz_unknown_topic_shows_source_not_found(app, monkeypatch):
     monkeypatch.setattr("backofthebook.wiki._fetch_json", FakeWikipedia({}))
     at = app(quiz_llm([]))
     at.text_input[1].set_value("asdfghjkl")
-    at.button[1].click().run()
+    quiz_buttons(at)[1].click().run()
 
     assert not at.exception
     assert any("Couldn't find a Wikipedia article" in i.value for i in at.info)
-    assert any("SOURCE_NOT_FOUND" in c.value for c in at.caption)
+    assert not any("SOURCE_NOT_FOUND" in c.value for c in at.caption)  # a hint, not a fault
 
 
 def test_anyquiz_shows_retryable_error_code_when_nothing_usable_comes_back(app, monkeypatch):
@@ -204,7 +210,7 @@ def test_anyquiz_shows_retryable_error_code_when_nothing_usable_comes_back(app, 
     )
     at = app(quiz_llm([]))
     at.text_input[1].set_value("mario galaxy")
-    at.button[1].click().run()
+    quiz_buttons(at)[1].click().run()
 
     assert not at.exception
     assert any("Trying again may work" in e.value for e in at.error)
@@ -218,7 +224,7 @@ def test_unexpected_errors_are_reported_as_internal_errors(app, monkeypatch):
     monkeypatch.setattr("backofthebook.quiz.generate_anyquiz", boom)
     at = app(FakeLLM())
     at.text_input[1].set_value("photosynthesis")
-    at.button[1].click().run()
+    quiz_buttons(at)[1].click().run()
 
     assert not at.exception
     assert any("INTERNAL_ERROR" in c.value for c in at.caption)
@@ -268,3 +274,34 @@ def test_uploaded_documents_are_listed_used_by_default_and_removable(app):
     assert at.session_state["docs"] == {}
     assert "syllabus.pdf" not in at.button_group[0].options
     assert any("Answering from all loaded documents" in c.value for c in at.caption)
+
+
+def test_example_question_button_asks_it(app):
+    llm = FakeLLM("A mean is the average [S1].")
+    at = app(llm)
+    example = next(b for b in at.button if (b.key or "").startswith("example_"))
+    example.click().run()
+
+    assert not at.exception
+    assert example.label in llm.prompts[0][1]
+    assert not any((b.key or "").startswith("example_") for b in at.button)  # hidden after
+
+
+def test_wrong_answer_shows_what_the_student_chose(app):
+    at = app(quiz_llm([kmeans_question()]))
+    at.text_input[0].set_value("k-means clustering")
+    quiz_buttons(at)[0].click().run()
+    question_radio(at, "What does k-means").set_value("Random cluster")
+    next(b for b in at.button if b.label == "Check answers").click().run()
+
+    assert any(s.value == "Score: 0 / 1" for s in at.subheader)
+    assert any("You chose *Random cluster*" in m.value for m in at.markdown)
+
+
+def test_input_mistakes_show_a_hint_without_an_error_code(app):
+    at = app(FakeLLM())
+    quiz_buttons(at)[1].click().run()  # empty topic
+
+    assert not at.exception
+    assert at.info
+    assert not any("EMPTY_TOPIC" in c.value for c in at.caption)

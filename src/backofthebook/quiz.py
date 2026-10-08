@@ -37,16 +37,20 @@ class Difficulty(StrEnum):
 
 DIFFICULTY_GUIDE = {
     Difficulty.EASY: (
-        "EASY: test recall of basic facts, terms, and definitions. Use plain wording. "
-        "Wrong choices should be clearly wrong to someone who knows the basics."
+        "EASY: ask about the most well-known, central facts of the topic, the kind a casual fan "
+        "or a student after one lesson would know. Use plain wording. The four choices must be "
+        "clearly different from each other, and the wrong ones obviously wrong to someone who "
+        "knows the basics. No obscure details, exact figures, or near-identical choices."
     ),
     Difficulty.MEDIUM: (
-        "MEDIUM: test understanding and application: explaining why, comparing ideas, or "
-        "applying a concept to a simple example. Wrong choices should be plausible."
+        "MEDIUM: test understanding, not just recall: why something happens, how two things "
+        "compare, or applying an idea to a simple example. Wrong choices should be plausible "
+        "but still clearly distinct."
     ),
     Difficulty.HARD: (
-        "HARD: test deep understanding: multi-step reasoning, edge cases, or distinguishing "
-        "closely related ideas. Wrong choices should reflect common misconceptions."
+        "HARD: questions only someone who knows the topic well can answer: multi-step "
+        "reasoning, specific lesser-known details, edge cases, or telling closely related ideas "
+        "apart. Never ask basic definitions. Wrong choices should reflect common misconceptions."
     ),
 }
 
@@ -60,7 +64,9 @@ Each question must:
 - have exactly 4 answer choices with exactly one correct answer;
 - give `answer_index` as the 0-based position of the correct choice;
 - include a one or two sentence explanation of why the correct choice is right;
-- list the label(s) of the excerpt(s) that state the answer in `sources`, e.g. ["S2"].
+- list the label(s) of the excerpt(s) that state the answer in `sources`, e.g. ["S2"];
+- read like a normal quiz: never mention "the excerpts", "the passage", "the text", \
+"the source", or the [S1] labels in the question, the choices, or the explanation.
 
 If the excerpts don't support enough good questions, write fewer. If the topic is harmful or \
 not something a quiz should be written about, return an empty `questions` list."""
