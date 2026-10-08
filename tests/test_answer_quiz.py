@@ -8,6 +8,7 @@ from backofthebook.answer import (
     build_prompt,
     extract_citations,
     retrieval_query,
+    tidy_markdown,
 )
 from backofthebook.llm import ExtractiveProvider
 from backofthebook.quiz import (
@@ -154,3 +155,23 @@ def test_quiz_on_a_topic_outside_the_materials_never_calls_the_llm(retriever: Re
     with pytest.raises(TopicNotCovered, match="don't cover"):
         generate_quiz(retriever, llm, "mario galaxy", min_similarity=0.3)
     assert llm.prompts == []
+
+
+def test_tidy_markdown_fixes_formats_seen_from_gpt_oss():
+    raw = (
+        "Precision \\( \\frac{TP}{TP+FP} \\) is key 【S2】 and 【S1†L3-L9】.\n"
+        "\\[ \\text{Recall} = \\frac{80}{100} \\]"
+    )
+    tidy = tidy_markdown(raw)
+
+    assert "$\\frac{TP}{TP+FP}$" in tidy
+    assert "$$\n\\text{Recall} = \\frac{80}{100}\n$$" in tidy
+    assert "[S2]" in tidy and "[S1]" in tidy and "【" not in tidy
+    assert extract_citations(tidy, num_sources=3)[0] == [2, 1]
+
+
+def test_answer_text_is_tidied_so_fullwidth_citations_count(retriever: Retriever):
+    llm = FakeLLM("The median is the middle value 【S1】.")
+    answer = AnswerEngine(retriever, llm, k=3, min_similarity=0.0).ask("median of sorted data")
+    assert answer.text.endswith("[S1].")
+    assert answer.cited == [1]

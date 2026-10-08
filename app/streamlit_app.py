@@ -24,7 +24,7 @@ import streamlit as st
 from streamlit.errors import StreamlitSecretNotFoundError
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
-from backofthebook.answer import Answer, AnswerEngine, Turn
+from backofthebook.answer import Answer, AnswerEngine, Turn, tidy_markdown
 from backofthebook.chunking import chunk_pages
 from backofthebook.documents import SUPPORTED_SUFFIXES, load_document, unreadable_pages
 from backofthebook.errors import BackOfTheBookError, ErrorCode
@@ -523,7 +523,7 @@ def stream_reply(question: str, sources: list[str] | None) -> dict[str, object] 
                 if status is not None and not text:
                     status.update(label=thought_label(answer.thinking_seconds), state="complete")
                 text += event.text
-                reply_box.markdown(text + " ▌")
+                reply_box.markdown(tidy_markdown(text) + " ▌")
     except BackOfTheBookError as e:
         if status is not None:
             status.update(label="Something went wrong", state="error")
@@ -531,7 +531,7 @@ def stream_reply(question: str, sources: list[str] | None) -> dict[str, object] 
         return None
     if status is not None and not text:
         status.update(label=thought_label(answer.thinking_seconds), state="complete")
-    reply_box.markdown(text)
+    reply_box.markdown(answer.text)
     record = turn_record(answer)
     render_answer_footer(record)
     return record
