@@ -105,3 +105,18 @@ def test_bundled_sample_index_is_valid():
     assert bundled.embeddings.shape == (1479, 384)
     assert np.allclose((bundled.embeddings**2).sum(axis=1), 1.0, atol=1e-4)
     assert all(c.label for c in bundled.chunks if c.page > 10)  # printed page numbers detected
+
+
+def test_adding_uploads_never_changes_the_shared_index(index: CorpusIndex):
+    """The sample index is shared by every visitor; one visitor's uploads must only ever
+    produce a new, private index for that visitor's session."""
+    before_chunks, before_vectors = list(index.chunks), index.embeddings.copy()
+
+    private = index.add(
+        [Chunk("secret.pdf#p1-0", "secret.pdf", 1, "Private notes.")], FakeEmbedder()
+    )
+
+    assert "secret.pdf" in private.sources
+    assert "secret.pdf" not in index.sources
+    assert index.chunks == before_chunks
+    assert np.array_equal(index.embeddings, before_vectors)
