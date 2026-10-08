@@ -44,6 +44,10 @@ target-version = "py311"
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
 ignore = ["SIM905"]  # a split() word list reads better than a 300-character list literal
 
+[tool.ruff.lint.per-file-ignores]
+# The app must set up sys.path and drop stale modules before importing its own package.
+"app/streamlit_app.py" = ["E402"]
+
 [tool.mypy]
 python_version = "3.11"
 strict = true
