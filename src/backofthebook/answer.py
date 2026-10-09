@@ -96,12 +96,12 @@ def _one_line(math: str) -> str:
     return " ".join(math.split())
 
 
-_MARKDOWN_SPECIAL = re.compile(r"([\\`*_\[\]<>!$~|&])")
+_MARKDOWN_SPECIAL = re.compile(r"([\\`*_\[\]<>!$~|&#])")
 
 
 def escape_markdown(text: str) -> str:
     """Text that renders exactly as written in Markdown: on one line, with every character
-    that could start a link, image, HTML tag, math, or emphasis escaped."""
+    that could start a link, image, HTML tag, heading, math, or emphasis escaped."""
     return _MARKDOWN_SPECIAL.sub(r"\\\1", " ".join(text.split()))
 
 
@@ -332,10 +332,11 @@ class AnswerEngine:
         answer.sources = hits[:QUOTED_PASSAGES]
         lines = [QUOTE_INTRO, ""]
         for n, hit in enumerate(answer.sources, start=1):
-            snippet = " ".join(hit.chunk.text.split())
-            more = "…" if len(snippet) > 400 else ""
-            lines.append(f"- {snippet[:400]}{more} [S{n}]")
-        answer.text = tidy_markdown("\n".join(lines))
+            text = " ".join(hit.chunk.text.split())
+            more = "…" if len(text) > 400 else ""
+            # Document text is quoted as written, never rendered as Markdown.
+            lines.append(f"- {escape_markdown(text[:400])}{more} [S{n}]")
+        answer.text = "\n".join(lines)  # not tidied: that would read the escaped \[ \] as math
         answer.cited = list(range(1, len(answer.sources) + 1))
 
     def ask(
