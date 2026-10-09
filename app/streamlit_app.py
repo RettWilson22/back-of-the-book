@@ -699,9 +699,12 @@ def report_link(quiz: Quiz, question: QuizQuestion, public_sources: Collection[s
 
 
 def source_links(quiz: Quiz, question: QuizQuestion) -> str:
+    """Markdown for a question's sources. Citations are escaped: a Wikipedia section heading
+    is text anyone can edit, and a file name is the visitor's."""
     links = []
     for passage in quiz.sources_for(question):
-        links.append(f"[{passage.citation}]({passage.url})" if passage.url else passage.citation)
+        name = escape_markdown(passage.citation)
+        links.append(f"[{name}]({passage.url})" if passage.url else name)
     return ", ".join(dict.fromkeys(links))  # de-duplicate, keep order
 
 

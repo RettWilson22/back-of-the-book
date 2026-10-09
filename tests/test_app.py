@@ -722,3 +722,20 @@ def test_upload_area_and_about_page_say_where_document_text_goes(app):
     note = "the text used to answer a question is sent to the AI provider (Groq)"
     assert any(note in c.value for c in at.caption)
     assert any("deleted after" in m.value and "(Groq)" in m.value for m in at.markdown)
+
+
+def test_source_names_from_wikipedia_cannot_form_an_image(app, monkeypatch):
+    article = (
+        "Intro to the whole topic here.\n\n"
+        "== ![x](https://evil.example/s) ==\nThe answer is here in text."
+    )
+    monkeypatch.setattr("backofthebook.wiki._fetch_json", FakeWikipedia({"Sneaky": article}))
+    sneaky = kmeans_question(question="Where is the answer?", sources=["S2"])
+    at = app(quiz_llm([sneaky]))
+    at.text_input[1].set_value("sneaky")
+    quiz_buttons(at)[1].click().run()
+    next(b for b in at.button if b.label == "Check answers").click().run()
+
+    source = next(c.value for c in at.caption if c.value.startswith("Source:"))
+    assert not at.exception
+    assert "![" not in source and "\\!\\[x\\]" in source
