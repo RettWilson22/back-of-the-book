@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import threading
@@ -24,6 +25,7 @@ from pydantic import BaseModel, ValidationError
 from backofthebook.errors import BackOfTheBookError, ErrorCode
 
 T = TypeVar("T", bound=BaseModel)
+logger = logging.getLogger(__name__)
 
 CLAUDE_DEFAULT_MODEL = "claude-opus-5-5"
 GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b"
@@ -63,17 +65,19 @@ class LLMProvider(Protocol):
     def generate(self, system: str, user: str, schema: type[T]) -> T: ...
 
 
-def _status_error(provider: str, status: int, message: str) -> LLMError:
+def _status_error(provider: str, status: int) -> LLMError:
+    # The provider's own message can include account or request details, so it is only
+    # logged (see _claude_error and _groq_error), never shown.
     details = {"provider": provider, "status": status}
     if status >= 500:
         return LLMError(
             ErrorCode.LLM_UNAVAILABLE,
-            f"{provider} is having problems right now (HTTP {status}); try again shortly.",
+            f"{provider} is having problems right now; try again shortly.",
             details=details,
         )
     return LLMError(
         ErrorCode.LLM_REQUEST_REJECTED,
-        f"{provider} rejected the request (HTTP {status}): {message}",
+        f"{provider} couldn't handle this request.",
         details=details,
     )
 
@@ -81,6 +85,8 @@ def _status_error(provider: str, status: int, message: str) -> LLMError:
 def _claude_error(e: Exception) -> LLMError:
     """Map Anthropic SDK exceptions (most specific first) to coded errors."""
     import anthropic
+
+    logger.warning("Claude request failed: %r", e)
 
     if isinstance(e, anthropic.AuthenticationError):
         return LLMError(
@@ -91,18 +97,19 @@ def _claude_error(e: Exception) -> LLMError:
             ErrorCode.LLM_RATE_LIMITED, "Claude rate limit reached; wait a moment and try again."
         )
     if isinstance(e, anthropic.APIStatusError):
-        return _status_error("Claude", e.status_code, e.message)
+        return _status_error("Claude", e.status_code)
     if isinstance(e, anthropic.APIConnectionError):
         return LLMError(
             ErrorCode.LLM_UNAVAILABLE, "Could not reach the Claude API; check your connection."
         )
-    return LLMError(ErrorCode.LLM_UNAVAILABLE, f"Claude request failed: {e}")
+    return LLMError(ErrorCode.LLM_UNAVAILABLE, "The request to Claude failed; try again shortly.")
 
 
 def _groq_error(e: Exception) -> LLMError:
     """Map Groq SDK exceptions (most specific first) to coded errors."""
     import groq
 
+    logger.warning("Groq request failed: %r", e)
     if isinstance(e, groq.AuthenticationError):
         return LLMError(ErrorCode.LLM_AUTH_FAILED, "Groq rejected the API key; check GROQ_API_KEY.")
     if isinstance(e, groq.RateLimitError):
@@ -110,12 +117,12 @@ def _groq_error(e: Exception) -> LLMError:
             ErrorCode.LLM_RATE_LIMITED, "Groq rate limit reached; wait a moment and try again."
         )
     if isinstance(e, groq.APIStatusError):
-        return _status_error("Groq", e.status_code, e.message)
+        return _status_error("Groq", e.status_code)
     if isinstance(e, groq.APIConnectionError):
         return LLMError(
             ErrorCode.LLM_UNAVAILABLE, "Could not reach the Groq API; check your connection."
         )
-    return LLMError(ErrorCode.LLM_UNAVAILABLE, f"Groq request failed: {e}")
+    return LLMError(ErrorCode.LLM_UNAVAILABLE, "The request to Groq failed; try again shortly.")
 
 
 class ClaudeProvider:

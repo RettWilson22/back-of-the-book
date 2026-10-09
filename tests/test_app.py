@@ -12,6 +12,7 @@ from streamlit.testing.v1 import AppTest
 
 from backofthebook.chunking import chunk_pages
 from backofthebook.index import CorpusIndex
+from backofthebook.llm import StreamEvent
 from backofthebook.quiz import AnswerSheet, QuizDraft, QuizQuestion
 
 APP = str(Path(__file__).resolve().parents[1] / "app" / "streamlit_app.py")
@@ -533,3 +534,53 @@ def test_requests_per_minute_are_limited_across_all_visitors(app, monkeypatch):
     assert len(llm.prompts) == 1
     assert any("in a minute" in i.value for i in other_visitor.info)
     assert at.session_state["llm_calls"] == 1
+
+
+class BrokenLLM(FakeLLM):
+    """Streams part of an answer, then fails the way a bug or dropped connection would."""
+
+    def chat_stream(self, system, messages):
+        yield StreamEvent("text", "A partial answer that ")
+        raise RuntimeError("connection reset by peer at 10.0.0.7")
+
+
+def test_unexpected_error_while_answering_is_reported_and_partial_text_cleared(app):
+    at = ask(app(BrokenLLM()), "how does a decision tree split data with questions")
+
+    assert not at.exception
+    assert any("INTERNAL_ERROR" in c.value for c in at.caption)
+    assert not any("partial answer" in m.value for m in at.markdown)
+    assert not any("10.0.0.7" in e.value for e in at.error)
+    assert at.session_state["turns"] == []
+
+
+def test_unexpected_error_before_streaming_is_reported(app, monkeypatch):
+    def broken(*args, **kwargs):
+        raise RuntimeError("index corrupted")
+
+    monkeypatch.setattr("backofthebook.answer.AnswerEngine.select_passages", broken)
+    at = ask(app(FakeLLM("Fine.")), "how does a decision tree split data")
+
+    assert not at.exception
+    assert any("INTERNAL_ERROR" in c.value for c in at.caption)
+
+
+def test_upload_with_a_very_long_name_is_read_under_a_shorter_one(app):
+    at = upload(app(FakeLLM()), ("n" * 300 + ".md", b"# Notes\nDecision trees split on features."))
+
+    assert not at.exception
+    [name] = at.session_state["docs"]
+    assert len(name) <= 120 and name.endswith(".md")
+
+
+def test_failure_while_indexing_an_upload_becomes_a_message(app, monkeypatch):
+    def broken(*args, **kwargs):
+        raise RuntimeError("out of memory")
+
+    at = app(FakeLLM())
+    monkeypatch.setattr("backofthebook.index.CorpusIndex.build", broken)
+    upload(at, notes(1))
+
+    assert not at.exception
+    assert at.session_state["docs"] == {}
+    assert any("Couldn't read notes1.md" in e.value for e in at.error)

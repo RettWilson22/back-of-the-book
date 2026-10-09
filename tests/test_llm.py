@@ -373,3 +373,21 @@ def test_budgeted_provider_makes_no_request_once_the_budget_is_spent():
     with pytest.raises(LLMError):
         provider.generate("sys", "q", Answer)
     assert inner.prompts == []
+
+
+def test_provider_error_messages_shown_to_users_are_generic():
+    request = httpx.Request("POST", "https://api.groq.com")
+    groq_error = groq.BadRequestError(
+        "model `x` does not exist; org org_123 key gsk_abc",
+        response=httpx.Response(400, request=request),
+        body=None,
+    )
+    claude_error = _anthropic_status(400)
+    claude_error.message = "prompt is too long: 250000 tokens > 200000 (org org_123)"
+
+    for mapped in (_groq_error(groq_error), _claude_error(claude_error)):
+        assert mapped.code is ErrorCode.LLM_REQUEST_REJECTED
+        assert "org_123" not in mapped.message and "HTTP" not in mapped.message
+        assert mapped.details["status"] == 400
+    for mapped in (_groq_error(ValueError("internal detail")), _claude_error(KeyError("x"))):
+        assert "internal detail" not in mapped.message and "KeyError" not in mapped.message
