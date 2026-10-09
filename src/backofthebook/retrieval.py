@@ -87,7 +87,7 @@ class Retriever:
         index: CorpusIndex,
         embedder: Embedder,
         reranker: Reranker | None = None,
-        candidates: int = 50,
+        candidates: int = 20,
     ) -> None:
         if embedder.model_name != index.embedding_model:
             raise ValueError(
@@ -96,6 +96,8 @@ class Retriever:
         self.index = index
         self.embedder = embedder
         self.reranker = reranker
+        # How deep each ranking goes before fusion, and how many fused passages the reranker
+        # scores. 20 matched 50 on both evaluation sets at about 40% of the rerank time.
         self.candidates = candidates
         self._bm25 = BM25Okapi([tokenize(c.text) or ["<empty>"] for c in index.chunks])
 

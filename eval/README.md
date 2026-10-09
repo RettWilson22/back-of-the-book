@@ -14,7 +14,7 @@
 
 ## Known limitations
 
-- Each question has a single gold page. When a passage continues onto the next page, a correct retrieval of that next page counts as a miss, so recall is a lower bound. Both remaining hybrid+rerank misses in `questions.jsonl` (q062, q065) are of this kind.
+- Each question has a single gold page. When a passage continues onto the next page, a correct retrieval of that next page counts as a miss, so recall is a lower bound. With 50 rerank candidates, one of the two hybrid+rerank misses in `questions.jsonl` (q062) was of this kind. The default is now 20 candidates, which finds q062 at rank 10 but misses q053, whose top ten include the page before its labeled page; the other miss (q065) is the same with either setting.
 - 75 questions give roughly ±10 percentage points of uncertainty on recall figures, and the held-out set (19 questions) is much noisier. Treat small differences between methods as indicative, not conclusive.
 
 ## Attribution and license
