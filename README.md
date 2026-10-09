@@ -184,7 +184,7 @@ Use your own materials with `backofthebook ingest path/to/slides/`, or upload fi
 ## Testing
 
 ```bash
-pytest                 # 232 tests, about 20 s, no downloads or API keys needed (fake models and LLM)
+pytest                 # 242 tests, about 20 s, no downloads or API keys needed (fake models and LLM)
 pytest -m slow         # real embedding/reranking models; includes a guard that fails
                        # if textbook Recall@10 drops below 95% or MRR below 0.80
 ruff check . && mypy src app/streamlit_app.py
