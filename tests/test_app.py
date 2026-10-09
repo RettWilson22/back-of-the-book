@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import streamlit as st
 from conftest import TOY_PAGES, FakeEmbedder, FakeLLM, FakeReranker, FakeWikipedia
 from streamlit.testing.v1 import AppTest
 
@@ -19,6 +20,7 @@ APP = str(Path(__file__).resolve().parents[1] / "app" / "streamlit_app.py")
 @pytest.fixture
 def app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     def start(llm: FakeLLM) -> AppTest:
+        st.cache_resource.clear()  # cached models, clients and the shared call budget
         index_dir = tmp_path / "index"
         CorpusIndex.build(chunk_pages(TOY_PAGES), FakeEmbedder()).save(index_dir)
         monkeypatch.setenv("BACKOFTHEBOOK_INDEX", str(index_dir))
@@ -502,3 +504,32 @@ def test_overlong_question_gets_a_hint_and_is_not_sent(app):
     assert not at.exception
     assert any("2,000 characters" in i.value for i in at.info)
     assert llm.prompts == [] and at.session_state["turns"] == []
+
+
+def test_a_session_has_a_limited_number_of_ai_requests(app):
+    llm = quiz_llm([kmeans_question()])
+    at = app(llm)
+    at.session_state["llm_calls"] = 40
+    ask(at, "how does a decision tree split data with questions")
+    assert any("limit of 40 AI requests" in i.value for i in at.info)
+
+    at.text_input[0].set_value("k-means clustering")
+    quiz_buttons(at)[0].click().run()
+    assert any("limit of 40 AI requests" in i.value for i in at.info)
+
+    assert not at.exception and not at.error
+    assert llm.prompts == []
+
+
+def test_requests_per_minute_are_limited_across_all_visitors(app, monkeypatch):
+    monkeypatch.setenv("BACKOFTHEBOOK_LLM_CALLS_PER_MINUTE", "1")
+    llm = FakeLLM("Splits on questions [S1].")
+    at = ask(app(llm), "how does a decision tree split data with questions")
+    other_visitor = AppTest.from_file(APP, default_timeout=30)
+    other_visitor.run()
+    ask(other_visitor, "what is k-means clustering")
+
+    assert not other_visitor.exception
+    assert len(llm.prompts) == 1
+    assert any("in a minute" in i.value for i in other_visitor.info)
+    assert at.session_state["llm_calls"] == 1

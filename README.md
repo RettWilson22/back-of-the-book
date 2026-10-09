@@ -74,6 +74,7 @@ Every failure is a `BackOfTheBookError` ([`errors.py`](src/backofthebook/errors.
 | `LLM_REQUEST_REJECTED` | Provider 4xx (e.g. invalid model) | no | 5 |
 | `LLM_REFUSED` | Model declined the request | no | 5 |
 | `LLM_BAD_RESPONSE` | Malformed or truncated response, even after one repair attempt | yes | 5 |
+| `USAGE_LIMIT` | The web app's limit on model requests per minute or per session was reached | yes | 5 |
 | `NO_VALID_QUESTIONS` | Nothing usable survived validation and the source check | yes | 6 |
 | `INTERNAL_ERROR` | An unexpected bug (logged with a traceback) | no | 1 |
 
@@ -170,6 +171,7 @@ Use your own materials with `backofthebook ingest path/to/slides/`, or upload fi
 | `BACKOFTHEBOOK_GROQ_MODEL` | `openai/gpt-oss-120b` |
 | `BACKOFTHEBOOK_CLAUDE_MODEL` / `BACKOFTHEBOOK_CLAUDE_EFFORT` | `claude-opus-5-5` / `medium` |
 | `BACKOFTHEBOOK_INDEX` (web app) | your `.backofthebook/index` if you've run `ingest`, else the bundled `data/index` |
+| `BACKOFTHEBOOK_LLM_CALLS_PER_MINUTE` / `BACKOFTHEBOOK_LLM_CALLS_PER_SESSION` (web app) | `30` model requests a minute for the whole server / `40` per visitor session. A chat answer is one request and a quiz is two or more |
 | `BACKOFTHEBOOK_ALLOW_CLAUDE` (web app) | off: the web app never uses Claude. Set it to `1` to offer Claude, but only on a private deployment, since every visitor's requests go on your bill |
 
 ### Deploy your own (Streamlit Community Cloud, free)

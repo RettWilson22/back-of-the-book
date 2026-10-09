@@ -265,11 +265,15 @@ class AnswerEngine:
             ]
         messages.append({"role": "user", "content": build_prompt(question, answer.sources)})
 
+        # Started here rather than inside events(), so a provider that refuses the request
+        # (such as a used-up call budget) raises before anything is shown.
+        stream = self.llm.chat_stream(SYSTEM_PROMPT, messages)
+
         def events() -> Iterator[StreamEvent]:
             started = time.monotonic()
             thinking: list[str] = []
             text: list[str] = []
-            for event in self.llm.chat_stream(SYSTEM_PROMPT, messages):
+            for event in stream:
                 if event.kind == "thinking":
                     thinking.append(event.text)
                 else:

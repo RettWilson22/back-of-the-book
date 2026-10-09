@@ -35,6 +35,8 @@ class ErrorCode(StrEnum):
     LLM_REQUEST_REJECTED = "LLM_REQUEST_REJECTED"
     LLM_REFUSED = "LLM_REFUSED"
     LLM_BAD_RESPONSE = "LLM_BAD_RESPONSE"
+    # This deployment's limit on LLM requests was reached; wait or come back later.
+    USAGE_LIMIT = "USAGE_LIMIT"
     # The LLM answered, but nothing usable came out of it.
     NO_VALID_QUESTIONS = "NO_VALID_QUESTIONS"
     # A bug: anything not anticipated above.
@@ -66,6 +68,7 @@ CATALOG: dict[ErrorCode, ErrorInfo] = {
     ErrorCode.LLM_REQUEST_REJECTED: ErrorInfo("LLM service", retryable=False, exit_code=5),
     ErrorCode.LLM_REFUSED: ErrorInfo("LLM service", retryable=False, exit_code=5),
     ErrorCode.LLM_BAD_RESPONSE: ErrorInfo("LLM service", retryable=True, exit_code=5),
+    ErrorCode.USAGE_LIMIT: ErrorInfo("usage limit", retryable=True, exit_code=5),
     ErrorCode.NO_VALID_QUESTIONS: ErrorInfo("generation", retryable=True, exit_code=6),
     ErrorCode.INTERNAL_ERROR: ErrorInfo("internal", retryable=False, exit_code=1),
 }

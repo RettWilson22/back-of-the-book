@@ -68,7 +68,7 @@ from backofthebook.index import (
     SentenceTransformerEmbedder,
     default_index_dir,
 )
-from backofthebook.llm import make_provider
+from backofthebook.llm import BudgetedProvider, CallLimiter, LLMError, make_provider
 from backofthebook.quiz import (
     MAX_QUESTIONS,
     MAX_TOPIC_CHARS,
@@ -89,6 +89,10 @@ USE_SAMPLE = os.environ.get("BACKOFTHEBOOK_SAMPLE", "1") != "0"
 # Claude costs far more per request than Groq's free tier, so a public deployment never offers
 # it unless the operator sets BACKOFTHEBOOK_ALLOW_CLAUDE=1.
 ALLOW_CLAUDE = os.environ.get("BACKOFTHEBOOK_ALLOW_CLAUDE") == "1"
+# Model requests (each chat answer is one, each quiz two or more), per minute for the whole
+# server and per visitor session, so nobody can run up the API bill or use up the rate limit.
+LLM_CALLS_PER_MINUTE = int(os.environ.get("BACKOFTHEBOOK_LLM_CALLS_PER_MINUTE", "30"))
+LLM_CALLS_PER_SESSION = int(os.environ.get("BACKOFTHEBOOK_LLM_CALLS_PER_SESSION", "40"))
 DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 # Limits on what one visitor can upload. The server also refuses files over maxUploadSize
 # (.streamlit/config.toml); the size is checked again here.
@@ -237,6 +241,7 @@ _INPUT_ERRORS = {
     ErrorCode.QUESTION_TOO_LONG,
     ErrorCode.TOPIC_NOT_COVERED,
     ErrorCode.SOURCE_NOT_FOUND,
+    ErrorCode.USAGE_LIMIT,
 }
 
 
@@ -253,6 +258,30 @@ def build_sample(index_dir: Path) -> str | None:
     except Exception as e:  # e.g. no network; the app still works with uploads
         return str(e)
     return None
+
+
+@st.cache_resource(show_spinner=False)
+def shared_call_limiter(per_minute: int) -> CallLimiter:
+    """One budget of model requests per minute, shared by every visitor to this server."""
+    return CallLimiter(per_minute)
+
+
+def spend_llm_call() -> None:
+    """Count one model request against this session's and the server's limits."""
+    used = st.session_state.get("llm_calls", 0)
+    if used >= LLM_CALLS_PER_SESSION:
+        raise LLMError(
+            ErrorCode.USAGE_LIMIT,
+            f"This visit has reached its limit of {LLM_CALLS_PER_SESSION} AI requests. "
+            "Switch to No AI in About > Settings to keep searching your documents.",
+        )
+    if not shared_call_limiter(LLM_CALLS_PER_MINUTE).try_acquire():
+        raise LLMError(
+            ErrorCode.USAGE_LIMIT,
+            "A lot of people are using Back of the Book right now, so it hit its limit on AI "
+            "requests. Please try again in a minute.",
+        )
+    st.session_state.llm_calls = used + 1
 
 
 @st.cache_resource(show_spinner="Loading course index...")
@@ -527,6 +556,8 @@ with about_settings:
         llm = make_provider("extractive")
     friendly = {"groq": "Groq", "claude": "Claude", "extractive": "No AI (matching passages only)"}
     st.caption(f"Currently using: {friendly.get(llm.name, llm.name)}")
+if llm.name != "extractive":
+    llm = BudgetedProvider(llm, spend_llm_call)
 
 retriever = Retriever(index, embedder, reranker)
 engine = AnswerEngine(retriever, llm)
