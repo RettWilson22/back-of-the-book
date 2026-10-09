@@ -564,6 +564,7 @@ def session_retriever() -> Retriever | None:
     With uploads it is built once per set of documents and kept in the session, so clicks that
     don't change the documents don't rebuild the merged index and its keyword index."""
     if not docs:
+        st.session_state.pop("retriever_cache", None)  # let removed documents be freed
         return shared_retriever(model_name)
     key = (hide_sample, tuple((name, id(doc)) for name, doc in docs.items()))
     cached = st.session_state.get("retriever_cache")

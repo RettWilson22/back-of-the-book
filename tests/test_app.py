@@ -692,6 +692,7 @@ def test_a_session_with_uploads_builds_its_search_index_only_when_documents_chan
     next(b for b in at.button if b.key == "remove_syllabus.pdf").click().run()
     assert not at.exception
     assert app.built.bm25 == shared + 2  # back to the shared index, already built
+    assert "retriever_cache" not in at.session_state  # removed documents can be freed
 
 
 def test_a_streaming_reply_is_redrawn_at_most_every_tenth_of_a_second(app, monkeypatch):
