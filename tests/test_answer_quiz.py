@@ -7,6 +7,7 @@ from backofthebook.answer import (
     AnswerEngine,
     Turn,
     build_prompt,
+    escape_markdown,
     excerpt,
     extract_citations,
     retrieval_query,
@@ -254,3 +255,10 @@ def test_tidy_markdown_turns_images_into_plain_text(image: str):
     tidy = tidy_markdown(image)
     assert "![" not in tidy
     assert tidy.count("!\\[") == max(image.count("!["), 1)
+
+
+def test_escape_markdown_shows_model_text_literally():
+    assert escape_markdown("x<y and *bold* [a](b) ![i](u) $5\n# heading") == (
+        "x\\<y and \\*bold\\* \\[a\\](b) \\!\\[i\\](u) \\$5 # heading"
+    )
+    assert escape_markdown("Nearest centroid") == "Nearest centroid"

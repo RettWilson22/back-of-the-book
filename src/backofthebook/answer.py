@@ -93,6 +93,15 @@ def _one_line(math: str) -> str:
     return " ".join(math.split())
 
 
+_MARKDOWN_SPECIAL = re.compile(r"([\\`*_\[\]<>!$~|&])")
+
+
+def escape_markdown(text: str) -> str:
+    """Text that renders exactly as written in Markdown: on one line, with every character
+    that could start a link, image, HTML tag, math, or emphasis escaped."""
+    return _MARKDOWN_SPECIAL.sub(r"\\\1", " ".join(text.split()))
+
+
 # Sequences that would let passage text end its excerpt early or pose as the student.
 _EXCERPT_MARKUP = re.compile(r"<[\s/]*excerpt>?|student\s+question\s*:", re.IGNORECASE)
 
