@@ -26,6 +26,7 @@ from backofthebook.quiz import (
     QuizQuestion,
     TopicNotCovered,
     generate_quiz,
+    shuffle_choices,
     validate_question,
 )
 from backofthebook.retrieval import Mode, Retriever
@@ -321,3 +322,28 @@ def test_a_newest_turn_too_long_for_the_budget_is_shortened_not_dropped(retrieve
     sent = llm.conversations[0]
     assert [m["role"] for m in sent] == ["user", "assistant", "user"]
     assert len(sent[0]["content"].split()) + len(sent[1]["content"].split()) == 1500
+
+
+def test_shuffled_choices_keep_the_right_answer():
+    q = question(choices=["Middle value", "Average", "Spread", "Mode"], answer_index=0)
+    shuffled = shuffle_choices(q)
+
+    assert sorted(shuffled.choices) == sorted(q.choices)
+    assert shuffled.choices[shuffled.answer_index] == "Middle value"
+    assert shuffled == shuffle_choices(q)  # the same question always gets the same order
+
+
+def test_shuffling_moves_answers_away_from_the_first_choice():
+    positions = {
+        shuffle_choices(question(question=f"Question {n}?", answer_index=0)).answer_index
+        for n in range(20)
+    }
+    assert len(positions) > 1
+
+
+def test_quizzes_come_with_shuffled_choices(retriever: Retriever):
+    draft = QuizDraft(questions=[question(question=f"What is fact {n}?") for n in range(6)])
+    quiz = generate_quiz(retriever, FakeLLM(structured=draft), "median", n=6, check=False, k=3)
+
+    assert all(q.choices[q.answer_index] == "Middle value" for q in quiz.questions)
+    assert {q.answer_index for q in quiz.questions} != {0}

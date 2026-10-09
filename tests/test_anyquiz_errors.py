@@ -339,7 +339,8 @@ def test_cli_anyquiz_prints_a_sourced_quiz(monkeypatch, capsys):
     assert cli.main(["anyquiz", "galaxy", "-n", "1", "-d", "easy"]) == 0
     out = capsys.readouterr().out
     assert "Written from Wikipedia: Super Mario Galaxy; every answer checked" in out
-    assert "A) Power Stars" in out
+    letter = out.split("Answer: ", 1)[1][0]
+    assert f"{letter}) Power Stars" in out
     assert "(Wikipedia: Super Mario Galaxy § Gameplay)" in out
 
 

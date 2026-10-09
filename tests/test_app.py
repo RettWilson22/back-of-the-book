@@ -183,7 +183,7 @@ def test_course_quiz_generates_checks_and_grades_answers(app):
 
     assert "HARD" in llm.prompts[0][1]
     radio = question_radio(at, "What does k-means assign points to?")
-    assert radio.options == kmeans_question().choices
+    assert sorted(radio.options) == sorted(kmeans_question().choices)
     radio.set_value("Nearest centroid")
     next(b for b in at.button if b.label == "Check answers").click().run()
 
