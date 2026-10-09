@@ -191,25 +191,36 @@ class FakeGroqClient:
         self,
         replies: list[str] | None = None,
         deltas=(("Hmm", None), (None, "A"), (None, None), (None, "B")),
+        finish_reason: str = "stop",
     ) -> None:
         self.calls: list[dict[str, Any]] = []
         self._replies = list(replies or [])
         self._deltas = deltas
+        self._finish = finish_reason
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     def _create(self, **kwargs: Any) -> Any:
         self.calls.append(kwargs)
         if kwargs.get("stream"):
+            last = len(self._deltas) - 1
             return [
                 SimpleNamespace(
-                    choices=[SimpleNamespace(delta=SimpleNamespace(reasoning=r, content=c))]
+                    choices=[
+                        SimpleNamespace(
+                            delta=SimpleNamespace(reasoning=r, content=c),
+                            finish_reason=self._finish if i == last else None,
+                        )
+                    ]
                 )
-                for r, c in self._deltas
+                for i, (r, c) in enumerate(self._deltas)
             ]
         content = self._replies.pop(0)
         if isinstance(content, Exception):
             raise content
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+        message = SimpleNamespace(content=content)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=message, finish_reason=self._finish)]
+        )
 
 
 def test_groq_streams_reasoning_and_text_and_skips_empty_deltas():
@@ -440,4 +451,36 @@ def test_groq_other_bad_requests_are_not_retried():
     with pytest.raises(LLMError) as raised:
         GroqProvider(client=client).generate("sys", "q", Answer)
     assert raised.value.code is ErrorCode.LLM_REQUEST_REJECTED
+    assert len(client.calls) == 1
+
+
+# --- Output cut off at the token limit -------------------------------------------------------
+
+
+def test_groq_answer_cut_off_at_the_limit_says_so():
+    client = FakeGroqClient(finish_reason="length")
+    events = list(GroqProvider(client=client).chat_stream("sys", CONVERSATION))
+
+    assert events[-1].kind == "text" and "cut off" in events[-1].text
+
+
+def test_groq_answer_with_no_text_before_the_limit_is_an_error():
+    client = FakeGroqClient(deltas=(("Thinking a lot", None),), finish_reason="length")
+    with pytest.raises(LLMError) as raised:
+        list(GroqProvider(client=client).chat_stream("sys", CONVERSATION))
+    assert raised.value.code is ErrorCode.LLM_BAD_RESPONSE
+
+
+def test_claude_answer_cut_off_at_the_limit_says_so():
+    client = FakeClaudeClient(stop_reason="max_tokens")
+    events = list(ClaudeProvider(client=client).chat_stream("sys", CONVERSATION))
+
+    assert events[-1].kind == "text" and "cut off" in events[-1].text
+
+
+def test_groq_quiz_cut_off_at_the_limit_asks_for_fewer_questions_without_retrying():
+    client = FakeGroqClient(replies=['{"value": '], finish_reason="length")
+    with pytest.raises(LLMError, match="fewer questions") as raised:
+        GroqProvider(client=client).generate("sys", "q", Answer)
+    assert raised.value.code is ErrorCode.LLM_BAD_RESPONSE
     assert len(client.calls) == 1
