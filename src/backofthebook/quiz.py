@@ -15,6 +15,7 @@ Every failure raises a `BackOfTheBookError` with an error code (see `errors.py`)
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -151,8 +152,14 @@ def check_request(topic: str, n: int, difficulty: Difficulty | str) -> tuple[str
     return topic, level
 
 
+def _label_numbers(label: str) -> list[int]:
+    """Excerpt numbers in a source label. Models write "S1", "[S1]", "s1", or "S1, S2"."""
+    return [int(n) for n in re.findall(r"\d+", label)]
+
+
 def _source_numbers(question: QuizQuestion) -> list[int]:
-    return [int(label.strip().lstrip("Ss")) for label in question.sources]
+    numbers = (n for label in question.sources for n in _label_numbers(label))
+    return list(dict.fromkeys(numbers))  # each excerpt once, in order
 
 
 def validate_question(question: QuizQuestion, num_sources: int) -> bool:
@@ -164,8 +171,8 @@ def validate_question(question: QuizQuestion, num_sources: int) -> bool:
     if not question.sources:
         return False
     for label in question.sources:
-        number = label.strip().lstrip("Ss")
-        if not number.isdigit() or not 1 <= int(number) <= num_sources:
+        numbers = _label_numbers(label)
+        if not numbers or not all(1 <= n <= num_sources for n in numbers):
             return False
     return bool(question.question.strip() and question.explanation.strip())
 
@@ -212,13 +219,16 @@ def source_check(
     """Keep questions whose answer key matches what their cited passages support.
 
     Returns (kept questions, whether the check ran). If the answer sheet doesn't line up with
-    the questions, the check is skipped rather than guessing which answer belongs to which.
+    the questions, the check is asked for once more, then skipped rather than guessing which
+    answer belongs to which.
     """
-    sheet = llm.generate(CHECK_SYSTEM_PROMPT, build_check_prompt(questions, passages), AnswerSheet)
-    if len(sheet.answers) != len(questions):
-        return questions, False
-    kept = [q for q, a in zip(questions, sheet.answers, strict=True) if a == q.answer_index]
-    return kept, True
+    prompt = build_check_prompt(questions, passages)
+    for _ in range(2):
+        sheet = llm.generate(CHECK_SYSTEM_PROMPT, prompt, AnswerSheet)
+        if len(sheet.answers) == len(questions):
+            pairs = zip(questions, sheet.answers, strict=True)
+            return [q for q, answer in pairs if answer == q.answer_index], True
+    return questions, False
 
 
 def _quiz_from_passages(

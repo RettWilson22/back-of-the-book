@@ -20,6 +20,7 @@ from backofthebook.errors import BackOfTheBookError, ErrorCode
 from backofthebook.index import CorpusIndex
 from backofthebook.llm import ExtractiveProvider
 from backofthebook.quiz import (
+    Difficulty,
     Quiz,
     QuizDraft,
     QuizQuestion,
@@ -28,6 +29,7 @@ from backofthebook.quiz import (
     validate_question,
 )
 from backofthebook.retrieval import Mode, Retriever
+from backofthebook.wiki import Passage
 
 
 def test_extract_citations_splits_valid_and_invalid_and_dedupes():
@@ -139,6 +141,22 @@ def test_validate_question_rejects_bad_questions():
     assert not validate_question(question(sources=["S3"]), 2)
     assert not validate_question(question(sources=[]), 2)
     assert not validate_question(question(explanation=" "), 2)
+    assert not validate_question(question(sources=["the first excerpt"]), 2)
+    assert not validate_question(question(sources=["S0"]), 2)
+    assert not validate_question(question(sources=["S1, S3"]), 2)
+
+
+@pytest.mark.parametrize(
+    ("labels", "numbers"),
+    [(["[S1]"], [1]), (["S1, S2"], [1, 2]), (["s2"], [2]), (["S 2", "(S1)"], [2, 1])],
+)
+def test_source_labels_are_read_in_any_common_format(labels, numbers):
+    passages = [Passage("a.pdf, p. 1", "One."), Passage("a.pdf, p. 2", "Two.")]
+    q = question(sources=labels)
+    quiz = Quiz("t", Difficulty.EASY, [q], passages, "your course materials")
+
+    assert validate_question(q, num_sources=2)
+    assert quiz.sources_for(q) == [passages[n - 1] for n in numbers]
 
 
 def test_generate_quiz_drops_invalid_questions_and_maps_sources(retriever: Retriever):
