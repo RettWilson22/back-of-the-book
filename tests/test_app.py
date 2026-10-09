@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -14,12 +15,20 @@ from backofthebook.chunking import chunk_pages
 from backofthebook.index import CorpusIndex
 from backofthebook.llm import StreamEvent
 from backofthebook.quiz import AnswerSheet, QuizDraft, QuizQuestion
+from backofthebook.retrieval import BM25Okapi
 
 APP = str(Path(__file__).resolve().parents[1] / "app" / "streamlit_app.py")
 
 
 @pytest.fixture
 def app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    built = SimpleNamespace(rerankers=[], encoded=[], bm25=0)  # what the app created and did
+
+    class BM25(BM25Okapi):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            built.bm25 += 1
+            super().__init__(*args, **kwargs)
+
     def start(llm: FakeLLM) -> AppTest:
         st.cache_resource.clear()  # cached models, clients and the shared call budget
         index_dir = tmp_path / "index"
@@ -31,8 +40,18 @@ def app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             def __init__(self, model_name: str = "") -> None:
                 self.model_name = "fake-embedder"
 
+            def encode(self, texts: list[str]) -> Any:
+                built.encoded.append(list(texts))
+                return super().encode(texts)
+
+        class Reranker(FakeReranker):
+            def __init__(self, *args: Any) -> None:
+                super().__init__()
+                built.rerankers.append(self)
+
         monkeypatch.setattr("backofthebook.index.SentenceTransformerEmbedder", Embedder)
-        monkeypatch.setattr("backofthebook.retrieval.CrossEncoderReranker", FakeReranker)
+        monkeypatch.setattr("backofthebook.retrieval.CrossEncoderReranker", Reranker)
+        monkeypatch.setattr("backofthebook.retrieval.BM25Okapi", BM25)
 
         def make_provider(name: str | None = None, **options: Any) -> FakeLLM:
             llm.provider_requests.append((name, options))
@@ -45,6 +64,7 @@ def app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         assert not at.exception, at.exception
         return at
 
+    start.built = built  # type: ignore[attr-defined]
     return start
 
 
@@ -625,3 +645,50 @@ def test_problem_report_names_public_sources(app):
     next(b for b in at.button if b.label == "Check answers").click().run()
 
     assert "ml.pptx, p. 2" in report_body(at)
+
+
+# --- Caching ---------------------------------------------------------------------------------
+
+
+def test_models_are_loaded_and_warmed_once_before_the_first_question(app):
+    at = app(FakeLLM("Answer [S1]."))
+    at.radio[0].set_value("Hard").run()
+    at.run()
+
+    assert len(app.built.rerankers) == 1
+    assert app.built.rerankers[0].calls == 1  # warmed up while "Loading models..." showed
+    assert app.built.encoded[0] == ["warm up"]
+
+
+def test_widget_clicks_reuse_the_shared_search_index_and_provider(app):
+    llm = FakeLLM("Splits on questions [S1].")
+    at = app(llm)
+    at.radio[0].set_value("Hard").run()
+    at.button_group[0].select("stats.pdf").run()
+    ask(at, "how does a decision tree split data with questions")
+    at.run()
+
+    assert not at.exception
+    assert app.built.bm25 == 1
+    assert len(llm.provider_requests) == 1
+
+
+def test_a_session_with_uploads_builds_its_search_index_only_when_documents_change(app):
+    at = app(FakeLLM("Answer [S1]."))
+    shared = app.built.bm25
+    at.session_state["docs"] = {
+        "syllabus.pdf": uploaded("syllabus.pdf", "Instructor: Dr. Maria Rivera, office hours.")
+    }
+    at.run()
+    at.radio[0].set_value("Hard").run()
+    at.run()
+    assert app.built.bm25 == shared + 1
+
+    next(b for b in at.button if b.key == "hide_sample").click().run()
+    at.run()
+    assert app.built.bm25 == shared + 2
+    assert at.button_group[0].options == ["syllabus.pdf"]
+
+    next(b for b in at.button if b.key == "remove_syllabus.pdf").click().run()
+    assert not at.exception
+    assert app.built.bm25 == shared + 2  # back to the shared index, already built
