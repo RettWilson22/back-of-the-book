@@ -276,3 +276,30 @@ def test_overlong_question_is_refused_before_any_work(retriever: Retriever):
     assert llm.prompts == []
     engine.ask("what is the median " + "x" * (MAX_QUESTION_CHARS - 19))
     assert len(llm.prompts) == 1
+
+
+def test_history_sent_to_the_model_drops_old_citations_and_fits_a_word_budget(
+    retriever: Retriever,
+):
+    llm = FakeLLM("Answer [S1].")
+    engine = AnswerEngine(retriever, llm, min_similarity=0.0)
+    long_answer = " ".join(["word"] * 600) + " as shown [S1][S2] and (S3, S4)."
+    history = [Turn(f"Question {n}?", long_answer) for n in range(5)]
+
+    engine.ask("what is the median of sorted data", history)
+
+    sent = llm.conversations[0][:-1]
+    assert sum(len(m["content"].split()) for m in sent) <= 1500
+    assert [m["content"] for m in sent if m["role"] == "user"] == ["Question 3?", "Question 4?"]
+    assert all(m["content"].endswith("as shown and.") for m in sent if m["role"] == "assistant")
+
+
+def test_a_newest_turn_too_long_for_the_budget_is_shortened_not_dropped(retriever: Retriever):
+    llm = FakeLLM("Because [S1].")
+    engine = AnswerEngine(retriever, llm, min_similarity=0.0)
+
+    engine.ask("why?", [Turn("Explain the median?", " ".join(["word"] * 3000))])
+
+    sent = llm.conversations[0]
+    assert [m["role"] for m in sent] == ["user", "assistant", "user"]
+    assert len(sent[0]["content"].split()) + len(sent[1]["content"].split()) == 1500

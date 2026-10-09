@@ -169,6 +169,34 @@ class Answer:
         return [(n, self.sources[n - 1]) for n in self.cited]
 
 
+def _without_citations(text: str) -> str:
+    # Split, rather than matching r"\s*" before each marker, which is slow on long space runs.
+    *before, last = _CITATION_GROUP.split(text)
+    return "".join(piece.rstrip(" \t") for piece in before) + last
+
+
+def trim_history(history: list[Turn], max_words: int) -> list[Turn]:
+    """The newest turns that fit in `max_words` words, oldest first.
+
+    Citation markers are removed from earlier answers, since [S1] there meant a passage from
+    an earlier question. If the newest turn alone is too long, its answer is cut short so a
+    follow-up question still has context.
+    """
+    kept: list[Turn] = []
+    left = max_words
+    for turn in reversed(history):
+        answer = _without_citations(turn.answer)
+        words = len(turn.question.split()) + len(answer.split())
+        if words > left:
+            if not kept:
+                room = max(left - len(turn.question.split()), 0)
+                kept.append(Turn(turn.question, " ".join(answer.split()[:room])))
+            break
+        kept.append(Turn(turn.question, answer))
+        left -= words
+    return kept[::-1]
+
+
 def retrieval_query(question: str, history: list[Turn]) -> str:
     """Short follow-ups ("why?", "what about the median?") are searched together with the
     previous question so retrieval has something to go on."""
@@ -187,6 +215,7 @@ class AnswerEngine:
         mode: Mode = Mode.HYBRID_RERANK,
         max_history: int = 6,
         full_text_words: int = 3000,
+        history_words: int = 1500,
     ) -> None:
         self.retriever = retriever
         self.llm = llm
@@ -194,6 +223,8 @@ class AnswerEngine:
         self.min_similarity = min_similarity
         self.mode = mode if retriever.reranker is not None else Mode.HYBRID
         self.max_history = max_history
+        # Earlier turns sent with each question, newest first, up to this many words.
+        self.history_words = history_words
         # Chosen documents up to this many words are given to the model in full. ~3,000 words
         # is about 4,000 tokens, which leaves room for the conversation within the per-minute
         # token limits of free API tiers.
@@ -247,7 +278,7 @@ class AnswerEngine:
                 "one.",
                 details={"length": len(question)},
             )
-        history = (history or [])[-self.max_history :]
+        history = trim_history((history or [])[-self.max_history :], self.history_words)
         answer = Answer(question)
         query = retrieval_query(question, history)
         answer.sources = self.select_passages(query, sources)
