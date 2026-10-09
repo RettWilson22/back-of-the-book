@@ -15,6 +15,7 @@ Every failure raises a `BackOfTheBookError` with an error code (see `errors.py`)
 
 from __future__ import annotations
 
+import random
 import re
 from dataclasses import dataclass
 from enum import StrEnum
@@ -189,6 +190,19 @@ def _keep_valid(questions: list[QuizQuestion], num_sources: int) -> list[QuizQue
     return kept
 
 
+def shuffle_choices(question: QuizQuestion) -> QuizQuestion:
+    """The question with its choices in a shuffled order. Models tend to put the right answer
+    first; the order is seeded by the question text, so it is the same every time."""
+    order = list(range(len(question.choices)))
+    random.Random(question.question).shuffle(order)
+    return question.model_copy(
+        update={
+            "choices": [question.choices[i] for i in order],
+            "answer_index": order.index(question.answer_index),
+        }
+    )
+
+
 def build_write_prompt(topic: str, passages: list[Passage], n: int, difficulty: Difficulty) -> str:
     excerpts = "\n\n".join(
         excerpt(f"S{i}", p.citation, p.text) for i, p in enumerate(passages, start=1)
@@ -269,7 +283,7 @@ def _quiz_from_passages(
     return Quiz(
         topic,
         level,
-        valid[:n],
+        [shuffle_choices(q) for q in valid[:n]],
         passages,
         source_title,
         source_url,
