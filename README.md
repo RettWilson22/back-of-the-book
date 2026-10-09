@@ -15,16 +15,16 @@ Retrieval accuracy on [OpenStax *Principles of Data Science*](https://openstax.o
 | Retrieval | Recall@1 | Recall@5 | Recall@10 | MRR@10 | Median latency |
 |---|---|---|---|---|---|
 | Keyword (BM25) | 69.3% | 85.3% | 92.0% | 0.766 | 1 ms |
-| Semantic (embeddings) | 72.0% | 94.7% | 97.3% | 0.810 | 8 ms |
-| Hybrid (BM25 + embeddings, RRF) | 74.7% | 89.3% | 93.3% | 0.817 | 10 ms |
-| **Hybrid + cross-encoder rerank** (default) | **76.0%** | 93.3% | **97.3%** | **0.834** | 564 ms |
+| Semantic (embeddings) | 72.0% | 94.7% | 97.3% | 0.810 | 9 ms |
+| Hybrid (BM25 + embeddings, RRF) | 74.7% | 90.7% | 94.7% | 0.820 | 10 ms |
+| **Hybrid + cross-encoder rerank** (default) | **76.0%** | 93.3% | **97.3%** | **0.834** | 234 ms |
 
 75 questions, two per section of the book. Full tables, including Recall@3: [`eval/results.md`](eval/results.md), held-out set: [`eval/results-heldout.md`](eval/results-heldout.md).
 
 **What the numbers say**
-- Reranking gives the best top-1 accuracy and MRR, at the cost of about half a second per query on a laptop CPU.
+- Reranking gives the best top-1 accuracy and MRR, at the cost of about a quarter of a second per query on a laptop CPU. The reranker scores the top 20 fused candidates. Scoring 50 gave the same Recall@1/3/5/10 and MRR on both question sets and took more than twice as long (594 ms against 234 ms on the main set and 689 ms against 308 ms on the held-out set, measured on the same machine).
 - Plain hybrid search is *worse* than embeddings alone at Recall@10. BM25 pulls in passages that share words but not meaning. Fusion only paid off once a reranker re-scored the candidates.
-- Both remaining reranker misses (out of 75) are next-page continuations of the labeled page, not wrong answers. The strict single-page metric counts them as misses anyway; I didn't relax it after seeing results.
+- Two of the 75 questions still miss with reranking (q053 and q065). For both, the top ten include a nearby page from the same discussion (for q053 the page before the answer, for q065 the setup of the example three pages earlier) but not the labeled page. The strict single-page metric counts them as misses anyway; I didn't relax it after seeing results.
 
 **Knowing when the materials don't cover a question.** Before answering, Back of the Book checks how close the best passage is to the question. If nothing is close, it answers from general knowledge and labels the answer that way instead of citing passages that don't support it. The threshold was set on the main question set and then checked on a [held-out set](eval/heldout.jsonl) written afterwards:
 

@@ -3,9 +3,9 @@ Corpus: principles-of-data-science.pdf. Questions: 19 answerable, 15 off-topic.
 | Retrieval | Recall@1 | Recall@3 | Recall@5 | Recall@10 | MRR@10 | Median latency |
 |---|---|---|---|---|---|---|
 | bm25 | 63.2% | 84.2% | 89.5% | 94.7% | 0.759 | 1 ms |
-| dense | 68.4% | 84.2% | 94.7% | 94.7% | 0.758 | 8 ms |
-| hybrid | 68.4% | 89.5% | 94.7% | 94.7% | 0.782 | 10 ms |
-| hybrid+rerank | 84.2% | 89.5% | 89.5% | 94.7% | 0.868 | 679 ms |
+| dense | 68.4% | 84.2% | 94.7% | 94.7% | 0.758 | 9 ms |
+| hybrid | 68.4% | 89.5% | 94.7% | 94.7% | 0.782 | 11 ms |
+| hybrid+rerank | 84.2% | 89.5% | 89.5% | 94.7% | 0.868 | 308 ms |
 
 | Off-topic threshold | Answerable kept | Off-topic declined |
 |---|---|---|

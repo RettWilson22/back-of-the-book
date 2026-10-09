@@ -4,7 +4,8 @@ import numpy as np
 import pytest
 from conftest import FakeEmbedder, FakeReranker
 
-from backofthebook.chunking import Chunk
+from backofthebook.chunking import Chunk, chunk_pages
+from backofthebook.documents import Page
 from backofthebook.index import CorpusIndex, IndexBuildError
 from backofthebook.retrieval import Mode, Retriever, reciprocal_rank_fusion, tokenize
 
@@ -136,3 +137,19 @@ def test_merge_combines_without_reembedding_and_later_parts_win(index: CorpusInd
     assert [c.text for c in merged.chunks if c.source == "notes.md"] == ["Edited notes."]
     assert len(merged.chunks) == len(merged.embeddings) == len(index.chunks) + 1
     assert "notes.md" not in index.sources  # parts are untouched
+
+
+def test_reranker_scores_at_most_twenty_candidates():
+    pages = [
+        Page("big.pdf", n, f"Page {n} talks about the mean and median of data.") for n in range(60)
+    ]
+    index = CorpusIndex.build(chunk_pages(pages), FakeEmbedder())
+    scored: list[int] = []
+
+    class CountingReranker(FakeReranker):
+        def score(self, query: str, texts: list[str]) -> list[float]:
+            scored.append(len(texts))
+            return super().score(query, texts)
+
+    Retriever(index, FakeEmbedder(), CountingReranker()).search("mean median", k=5)
+    assert scored == [20]
