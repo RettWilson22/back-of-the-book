@@ -12,6 +12,9 @@ from dataclasses import dataclass
 from backofthebook.documents import Page
 
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
+# A "word" is any run of non-spaces, so text without spaces would otherwise make one huge
+# passage. Longer words are cut into pieces (the textbook's longest, a URL, is 117 characters).
+MAX_WORD_CHARS = 200
 
 
 @dataclass(frozen=True)
@@ -31,29 +34,51 @@ def split_sentences(text: str) -> list[str]:
     return [s.strip() for s in _SENTENCE_END.split(text) if s.strip()]
 
 
-def _pack(sentences: list[str], max_words: int, overlap_words: int) -> list[str]:
-    """Greedily pack sentences into windows of at most `max_words` words.
+def _length(words: list[str]) -> int:
+    return sum(map(len, words)) + len(words) - 1  # characters once joined with spaces
+
+
+def _word_groups(sentence: str, max_words: int, max_chars: int) -> list[list[str]]:
+    """The sentence's words, in groups that fit in one window (usually a single group)."""
+    words = [
+        word[i : i + MAX_WORD_CHARS]
+        for word in sentence.split()
+        for i in range(0, len(word), MAX_WORD_CHARS)
+    ]
+    groups: list[list[str]] = []
+    group: list[str] = []
+    for word in words:
+        if group and (len(group) == max_words or _length([*group, word]) > max_chars):
+            groups.append(group)
+            group = []
+        group.append(word)
+    return [*groups, group] if group else groups
+
+
+def _pack(sentences: list[str], max_words: int, overlap_words: int, max_chars: int) -> list[str]:
+    """Greedily pack sentences into windows of at most `max_words` words and `max_chars`
+    characters.
 
     Consecutive windows share roughly `overlap_words` words of trailing context. A single
-    sentence longer than `max_words` is split on word boundaries.
+    sentence too long for one window is split on word boundaries.
     """
-    words_per_sentence: list[list[str]] = []
-    for sentence in sentences:
-        words = sentence.split()
-        while len(words) > max_words:
-            words_per_sentence.append(words[:max_words])
-            words = words[max_words:]
-        if words:
-            words_per_sentence.append(words)
+    words_per_sentence = [
+        group for sentence in sentences for group in _word_groups(sentence, max_words, max_chars)
+    ]
 
     windows: list[str] = []
     start = 0
     while start < len(words_per_sentence):
-        end, count = start, 0
+        end, count, chars = start, 0, -1
         while end < len(words_per_sentence) and (
-            count + len(words_per_sentence[end]) <= max_words or end == start
+            (
+                count + len(words_per_sentence[end]) <= max_words
+                and chars + 1 + _length(words_per_sentence[end]) <= max_chars
+            )
+            or end == start
         ):
             count += len(words_per_sentence[end])
+            chars += 1 + _length(words_per_sentence[end])
             end += 1
         windows.append(" ".join(" ".join(s) for s in words_per_sentence[start:end]))
         if end >= len(words_per_sentence):
@@ -68,13 +93,17 @@ def _pack(sentences: list[str], max_words: int, overlap_words: int) -> list[str]
 
 
 def chunk_pages(
-    pages: list[Page], max_words: int = 180, overlap_words: int = 40, min_words: int = 5
+    pages: list[Page],
+    max_words: int = 180,
+    overlap_words: int = 40,
+    min_words: int = 5,
+    max_chars: int = 2_000,
 ) -> list[Chunk]:
     if overlap_words >= max_words:
         raise ValueError("overlap_words must be smaller than max_words")
     chunks: list[Chunk] = []
     for page in pages:
-        windows = _pack(split_sentences(page.text), max_words, overlap_words)
+        windows = _pack(split_sentences(page.text), max_words, overlap_words, max_chars)
         for n, window in enumerate(w for w in windows if len(w.split()) >= min_words):
             chunks.append(
                 Chunk(f"{page.source}#p{page.page}-{n}", page.source, page.page, window, page.label)

@@ -110,11 +110,9 @@ _EXCERPT_MARKUP = re.compile(r"<[\s/]*excerpt>?|student\s+question\s*:", re.IGNO
 
 
 def _strip_markup(text: str) -> str:
-    while True:  # repeat, since removing "<excerpt" from "<exc<excerpterpt" makes another
-        stripped = _EXCERPT_MARKUP.sub("", text)
-        if stripped == text:
-            return text
-        text = stripped
+    # Each match is replaced with text that can't be part of a match, so one pass is enough.
+    # Deleting it instead could join the pieces around it into a new one ("<exc" + "erpt").
+    return _EXCERPT_MARKUP.sub("(removed)", text)
 
 
 def excerpt(label: str, source: str, text: str) -> str:
@@ -216,6 +214,7 @@ class AnswerEngine:
         max_history: int = 6,
         full_text_words: int = 3000,
         history_words: int = 1500,
+        full_text_chars: int = 24_000,
     ) -> None:
         self.retriever = retriever
         self.llm = llm
@@ -229,6 +228,7 @@ class AnswerEngine:
         # is about 4,000 tokens, which leaves room for the conversation within the per-minute
         # token limits of free API tiers.
         self.full_text_words = full_text_words
+        self.full_text_chars = full_text_chars  # the same limit for text with very long words
 
     def is_in_scope(self, question: str, sources: Collection[str] | None = None) -> bool:
         """Whether the materials contain anything semantically close to the question."""
@@ -240,7 +240,8 @@ class AnswerEngine:
         if not sources:
             return None
         chosen = [c for c in self.retriever.index.chunks if c.source in set(sources)]
-        if sum(len(c.text.split()) for c in chosen) > self.full_text_words:
+        words = sum(len(c.text.split()) for c in chosen)
+        if words > self.full_text_words or sum(len(c.text) for c in chosen) > self.full_text_chars:
             return None
         return [Hit(c, 1.0) for c in chosen]
 
