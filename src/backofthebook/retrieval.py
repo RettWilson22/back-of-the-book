@@ -100,6 +100,7 @@ class Retriever:
         # scores. 20 matched 50 on both evaluation sets at about 40% of the rerank time.
         self.candidates = candidates
         self._bm25 = BM25Okapi([tokenize(c.text) or ["<empty>"] for c in index.chunks])
+        self._last_query: tuple[str, np.ndarray] | None = None
 
     def _allowed(self, sources: Collection[str] | None) -> np.ndarray | None:
         """Boolean mask of chunks from `sources`, or None to allow every chunk."""
@@ -121,11 +122,21 @@ class Retriever:
         scores = self._bm25.get_scores(tokenize(query))
         return [(i, s) for i, s in self._top(scores, n, allowed) if s > 0]
 
+    def _query_vector(self, query: str) -> np.ndarray:
+        """The query's embedding. The last one is remembered, since answering a question first
+        checks whether the materials cover it and then searches, both with the same query.
+        (Reading and replacing the tuple is safe when sessions share this retriever.)"""
+        last = self._last_query
+        if last is not None and last[0] == query:
+            return last[1]
+        vector: np.ndarray = self.embedder.encode([query])[0]
+        self._last_query = (query, vector)
+        return vector
+
     def _dense_ranking(
         self, query: str, n: int, allowed: np.ndarray | None = None
     ) -> list[tuple[int, float]]:
-        query_vec = self.embedder.encode([query])[0]
-        return self._top(self.index.embeddings @ query_vec, n, allowed)
+        return self._top(self.index.embeddings @ self._query_vector(query), n, allowed)
 
     def top_similarity(self, query: str, sources: Collection[str] | None = None) -> float:
         """Cosine similarity of the best-matching chunk; used to detect off-topic questions."""
