@@ -1,3 +1,4 @@
+import http.client
 import urllib.error
 
 import pytest
@@ -122,9 +123,33 @@ def test_invalid_input_never_reaches_wikipedia_or_the_llm():
 # --- Wikipedia source ------------------------------------------------------------------------
 
 
-def test_article_sections_split_on_headings():
+def test_article_sections_split_on_headings_and_leave_out_references():
     article = Article("T", "https://w/T", GALAXY)
-    assert [name for name, _ in article.sections()] == ["", "Gameplay", "Development", "References"]
+    assert [name for name, _ in article.sections()] == ["", "Gameplay", "Development"]
+
+
+def test_subsections_of_skipped_sections_are_left_out_too():
+    text = (
+        "Intro text about the topic.\n\n== History ==\nIt began long ago.\n\n"
+        "=== Early years ===\nThe first steps.\n\n== See also ==\n\n=== Related games ===\n"
+        "A list of links.\n\n== Works cited ==\n=== Books ===\nSmith 2001.\n\n"
+        "== Legacy ==\nIt is still played."
+    )
+    names = [name for name, _ in Article("T", "u", text).sections()]
+    assert names == ["", "History", "Early years", "Legacy"]
+
+
+def long_article(sections: int) -> Article:
+    def paragraph(label: str, sentences: int = 30) -> str:
+        return " ".join(
+            f"{label} sentence {n} has several plain words in it." for n in range(sentences)
+        )
+
+    parts = [paragraph("Lead", 100)]
+    for n in range(1, sections + 1):
+        parts.append(f"== Part {n} ==\n{paragraph(f'Part {n}')}")
+    parts.append("== References ==\n=== Notes ===\n" + paragraph("Citation"))
+    return Article("Long", "https://w/Long", "\n\n".join(parts))
 
 
 def test_passages_skip_reference_sections_and_link_to_their_section():
@@ -153,6 +178,24 @@ def test_passages_cover_every_section_before_going_deeper():
     ]
 
 
+def test_long_articles_are_covered_from_start_to_end():
+    passages = article_passages(long_article(40), limit=10)
+
+    assert len(passages) == 10
+    assert [p.citation for p in passages[:3]] == ["Wikipedia: Long"] * 3
+    parts = [int(p.citation.rsplit(" ", 1)[1]) for p in passages[3:]]
+    assert len(set(parts)) == 7  # seven different sections
+    assert min(parts) <= 6 and max(parts) >= 34  # from near the start to near the end
+    assert all("Citation sentence" not in p.text for p in passages)
+
+
+def test_short_articles_still_fill_the_quiz_from_the_introduction():
+    passages = article_passages(long_article(1), limit=10)
+    citations = [p.citation for p in passages]
+    assert citations.count("Wikipedia: Long § Part 1") >= 1
+    assert citations.count("Wikipedia: Long") > 3
+
+
 def test_find_article_skips_disambiguation_pages():
     fake = FakeWikipedia(
         {"Mercury (planet)": "Mercury is the closest planet to the Sun."},
@@ -168,9 +211,18 @@ def test_unknown_topic_raises_source_not_found():
     assert not raised.value.retryable
 
 
-def test_network_failure_raises_source_unavailable(monkeypatch):
+@pytest.mark.parametrize(
+    "failure",
+    [
+        urllib.error.URLError("no network"),
+        ConnectionResetError("connection reset by peer"),
+        http.client.IncompleteRead(b"{"),
+        OSError("network is unreachable"),
+    ],
+)
+def test_network_failure_raises_source_unavailable(monkeypatch, failure):
     def offline(*args, **kwargs):
-        raise urllib.error.URLError("no network")
+        raise failure
 
     monkeypatch.setattr(wiki.urllib.request, "urlopen", offline)
     with pytest.raises(BackOfTheBookError) as raised:
