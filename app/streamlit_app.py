@@ -68,7 +68,7 @@ from backofthebook.index import (
     SentenceTransformerEmbedder,
     default_index_dir,
 )
-from backofthebook.llm import BudgetedProvider, CallLimiter, LLMError, make_provider
+from backofthebook.llm import BudgetedProvider, CallLimiter, LLMError, LLMProvider, make_provider
 from backofthebook.quiz import (
     MAX_QUESTIONS,
     MAX_TOPIC_CHARS,
@@ -248,7 +248,26 @@ _INPUT_ERRORS = {
 
 @st.cache_resource(show_spinner="Loading models...")
 def load_models(model_name: str) -> tuple[SentenceTransformerEmbedder, CrossEncoderReranker]:
-    return SentenceTransformerEmbedder(model_name), CrossEncoderReranker()
+    """Load both models once per server. Both are used once here, because they only load on
+    first use: this way the spinner covers the slow part, and sessions that start at the same
+    time wait for this one load instead of each loading the models again."""
+    embedder, reranker = SentenceTransformerEmbedder(model_name), CrossEncoderReranker()
+    embedder.encode(["warm up"])
+    reranker.score("warm up", ["warm up"])
+    return embedder, reranker
+
+
+@st.cache_resource(show_spinner=False)
+def shared_retriever(model_name: str) -> Retriever | None:
+    """Search over the built-in materials, built once and shared by visitors with no uploads."""
+    base = load_base_index()
+    return None if base is None else Retriever(base, *load_models(model_name))
+
+
+@st.cache_resource(show_spinner=False)
+def load_provider(name: str | None, allow_claude: bool) -> LLMProvider:
+    """One client per provider for the whole server, rather than one per click."""
+    return make_provider(name, allow_claude=allow_claude)
 
 
 @st.cache_resource(show_spinner=False)
@@ -466,9 +485,10 @@ if USE_SAMPLE and not (INDEX_DIR / "meta.json").exists():
         if not build_sample(INDEX_DIR):
             st.warning("Couldn't set up the sample textbook. You can still upload files.")
 base_index = load_base_index()
+model_name = base_index.embedding_model if base_index else DEFAULT_MODEL
 # Built-in materials can be named in public problem reports; visitors' uploads can't.
 public_sources = base_index.sources if base_index else []
-embedder, reranker = load_models(base_index.embedding_model if base_index else DEFAULT_MODEL)
+embedder, reranker = load_models(model_name)
 
 st.session_state.setdefault("docs", {})
 st.session_state.setdefault("uploader_round", 0)
@@ -536,13 +556,34 @@ with ask_tab:
             on_click=lambda: set_sample_hidden(False),
         )
 
-parts = ([base_index] if base_index and not hide_sample else []) + [d.index for d in docs.values()]
-index: CorpusIndex | None = CorpusIndex.merge(parts) if parts else None
 
-if index is None:
+def session_retriever() -> Retriever | None:
+    """Search over what this visitor has loaded. Without uploads that's the shared retriever.
+    With uploads it is built once per set of documents and kept in the session, so clicks that
+    don't change the documents don't rebuild the merged index and its keyword index."""
+    if not docs:
+        return shared_retriever(model_name)
+    key = (hide_sample, tuple((name, id(doc)) for name, doc in docs.items()))
+    cached = st.session_state.get("retriever_cache")
+    if cached is not None and cached[0] == key:
+        found: Retriever = cached[2]
+        return found
+    parts = ([base_index] if base_index and not hide_sample else []) + [
+        d.index for d in docs.values()
+    ]
+    built = Retriever(CorpusIndex.merge(parts), embedder, reranker)
+    # The documents are kept with the key, so their ids can't be reused by new ones.
+    st.session_state.retriever_cache = (key, tuple(docs.values()), built)
+    return built
+
+
+loaded = session_retriever()
+if loaded is None:
     with ask_tab:
         st.info("Upload your notes, slides, or textbook above to get started.")
     st.stop()
+retriever: Retriever = loaded
+index = retriever.index
 
 with ask_tab:
     referenced = st.pills(
@@ -569,7 +610,7 @@ with about_settings:
     st.markdown("### Settings")
     choice = st.selectbox("Answers and quizzes are written by", list(provider_names), index=0)
     try:
-        llm = make_provider(provider_names[choice], allow_claude=ALLOW_CLAUDE)
+        llm = load_provider(provider_names[choice], ALLOW_CLAUDE)
     except Exception:
         logger.exception("couldn't start provider %s", choice)
         st.error(f"Couldn't start {choice}. Using matching passages only for now.")
@@ -579,7 +620,6 @@ with about_settings:
 if llm.name != "extractive":
     llm = BudgetedProvider(llm, spend_llm_call)
 
-retriever = Retriever(index, embedder, reranker)
 engine = AnswerEngine(retriever, llm)
 
 
