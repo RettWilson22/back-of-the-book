@@ -86,19 +86,6 @@ class CorpusIndex:
         embeddings = embedder.encode([c.text for c in chunks])
         return cls(chunks, embeddings, embedder.model_name)
 
-    def add(self, chunks: list[Chunk], embedder: Embedder) -> CorpusIndex:
-        """Return a new index with `chunks` appended (replacing chunks from the same files)."""
-        if embedder.model_name != self.embedding_model:
-            raise IndexBuildError("cannot mix embedding models in one index")
-        replaced = {c.source for c in chunks}
-        keep = [i for i, c in enumerate(self.chunks) if c.source not in replaced]
-        new = CorpusIndex.build(chunks, embedder)
-        return CorpusIndex(
-            [self.chunks[i] for i in keep] + new.chunks,
-            np.vstack([self.embeddings[keep], new.embeddings]),
-            self.embedding_model,
-        )
-
     @classmethod
     def merge(cls, parts: list[CorpusIndex]) -> CorpusIndex:
         """Combine indexes without re-embedding. A later part replaces earlier chunks from the

@@ -34,8 +34,11 @@ def test_building_from_no_chunks_fails_clearly():
         CorpusIndex.build([], FakeEmbedder())
 
 
-def test_add_replaces_chunks_from_the_same_file(index: CorpusIndex):
-    updated = index.add([Chunk("ml.pptx#p1-0", "ml.pptx", 1, "Neural networks.")], FakeEmbedder())
+def test_merge_replaces_chunks_from_the_same_file(index: CorpusIndex):
+    newer = CorpusIndex.build(
+        [Chunk("ml.pptx#p1-0", "ml.pptx", 1, "Neural networks.")], FakeEmbedder()
+    )
+    updated = CorpusIndex.merge([index, newer])
 
     ml = [c for c in updated.chunks if c.source == "ml.pptx"]
     assert [c.text for c in ml] == ["Neural networks."]
@@ -113,9 +116,10 @@ def test_adding_uploads_never_changes_the_shared_index(index: CorpusIndex):
     produce a new, private index for that visitor's session."""
     before_chunks, before_vectors = list(index.chunks), index.embeddings.copy()
 
-    private = index.add(
+    upload = CorpusIndex.build(
         [Chunk("secret.pdf#p1-0", "secret.pdf", 1, "Private notes.")], FakeEmbedder()
     )
+    private = CorpusIndex.merge([index, upload])
 
     assert "secret.pdf" in private.sources
     assert "secret.pdf" not in index.sources

@@ -93,13 +93,5 @@ class BackOfTheBookError(Exception):
     def exit_code(self) -> int:
         return CATALOG[self.code].exit_code
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "code": self.code.value,
-            "message": self.message,
-            "retryable": self.retryable,
-            "details": self.details,
-        }
-
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.code.value}: {self.message!r})"

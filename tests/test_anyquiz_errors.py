@@ -73,12 +73,11 @@ def test_error_carries_code_message_and_category_properties():
     assert str(error) == "Slow down."
     assert error.retryable
     assert error.exit_code == 5
-    assert error.to_dict() == {
-        "code": "LLM_RATE_LIMITED",
-        "message": "Slow down.",
-        "retryable": True,
-        "details": {"status": 429},
-    }
+    assert (error.code, error.message, error.details) == (
+        ErrorCode.LLM_RATE_LIMITED,
+        "Slow down.",
+        {"status": 429},
+    )
 
 
 def test_input_errors_are_not_retryable_and_exit_with_2():

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from backofthebook.errors import BackOfTheBookError, ErrorCode
-from backofthebook.index import USER_INDEX, default_index_dir
+from backofthebook.index import DEFAULT_EMBEDDING_MODEL, USER_INDEX, default_index_dir
 
 if TYPE_CHECKING:
     from backofthebook.quiz import Quiz
@@ -178,7 +178,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("paths", nargs="+", help="files or folders")
     p.add_argument("--chunk-words", type=int, default=180)
     p.add_argument("--overlap-words", type=int, default=40)
-    p.add_argument("--embedding-model", default="sentence-transformers/all-MiniLM-L6-v2")
+    p.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
     p.set_defaults(func=cmd_ingest)
 
     p = sub.add_parser("ask", help="answer a question with citations")
