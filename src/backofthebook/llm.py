@@ -4,13 +4,18 @@
 - `GroqProvider` uses Groq's free tier (JSON mode + Pydantic validation with one repair retry).
 - `ExtractiveProvider` stands for "no AI model": answers quote the retrieved passages
   themselves (see `AnswerEngine.quote_passages`), so the app and retrieval work offline.
+- `BudgetedProvider` wraps another provider and spends from a call budget before every
+  request; `CallLimiter` is a budget of calls per minute that threads can share.
 """
 
 from __future__ import annotations
 
 import os
 import re
-from collections.abc import Iterator
+import threading
+import time
+from collections import deque
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, TypeVar
 
@@ -286,6 +291,48 @@ class ExtractiveProvider:
             ErrorCode.NO_LLM_CONFIGURED,
             "Quiz generation needs an LLM. Set GROQ_API_KEY or ANTHROPIC_API_KEY.",
         )
+
+
+class CallLimiter:
+    """Allows at most `limit` calls in any `window` seconds, counted across all threads."""
+
+    def __init__(
+        self, limit: int, window: float = 60.0, clock: Callable[[], float] = time.monotonic
+    ) -> None:
+        self.limit = limit
+        self.window = window
+        self._clock = clock
+        self._calls: deque[float] = deque()
+        self._lock = threading.Lock()
+
+    def try_acquire(self) -> bool:
+        """Count one call and return True, or return False if the limit is reached."""
+        with self._lock:
+            now = self._clock()
+            while self._calls and now - self._calls[0] >= self.window:
+                self._calls.popleft()
+            if len(self._calls) >= self.limit:
+                return False
+            self._calls.append(now)
+            return True
+
+
+class BudgetedProvider:
+    """A provider that calls `spend` before every request. `spend` raises (usually an
+    LLMError with code USAGE_LIMIT) to stop the request from being made."""
+
+    def __init__(self, inner: LLMProvider, spend: Callable[[], None]) -> None:
+        self.inner = inner
+        self.name = inner.name
+        self._spend = spend
+
+    def chat_stream(self, system: str, messages: list[Message]) -> Iterator[StreamEvent]:
+        self._spend()  # now, not when the stream is first read
+        return self.inner.chat_stream(system, messages)
+
+    def generate(self, system: str, user: str, schema: type[T]) -> T:
+        self._spend()
+        return self.inner.generate(system, user, schema)
 
 
 def make_provider(name: str | None = None, *, allow_claude: bool = True) -> LLMProvider:
