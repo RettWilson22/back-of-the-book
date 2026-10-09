@@ -1,15 +1,18 @@
 import time
+import zipfile
 from pathlib import Path
 
 import pytest
 from conftest import make_pdf, make_pptx
 
+from backofthebook import documents
 from backofthebook.documents import (
     UnsupportedFileError,
     clean_text,
     detect_page_offset,
     find_documents,
     load_document,
+    read_document,
     remove_boilerplate,
 )
 
@@ -136,3 +139,87 @@ def test_find_documents_expands_folders(tmp_path: Path):
     found = find_documents([tmp_path])
 
     assert [p.name for p in found] == ["b.md", "a.txt"]
+
+
+# --- Limits for untrusted uploads -----------------------------------------------------------
+
+
+def test_pdf_over_the_page_limit_is_refused_before_reading_text(tmp_path: Path):
+    pdf = make_pdf(tmp_path / "long.pdf", [f"Page {n} text." for n in range(1, 6)])
+
+    with pytest.raises(UnsupportedFileError, match="5 pages"):
+        read_document(pdf, max_pages=4)
+    assert len(read_document(pdf, max_pages=5).pages) == 5
+
+
+@pytest.mark.parametrize("suffix", [".pdf", ".md", ".pptx"])
+def test_file_with_too_much_text_is_refused(tmp_path: Path, suffix: str):
+    words = "variance " * 200
+    if suffix == ".pdf":
+        path = make_pdf(tmp_path / "big.pdf", [words[:90]] * 4)
+    elif suffix == ".pptx":
+        path = make_pptx(tmp_path / "big.pptx", [{"title": "T", "body": words}])
+    else:
+        path = tmp_path / "big.md"
+        path.write_text(words)
+
+    with pytest.raises(UnsupportedFileError, match="too much text"):
+        read_document(path, max_chars=200)
+
+
+def test_limits_are_off_by_default_for_the_cli(tmp_path: Path):
+    pdf = make_pdf(tmp_path / "book.pdf", ["Some text."] * 3)
+    assert len(read_document(pdf).pages) == 3
+
+
+def test_pdf_is_parsed_once_and_reports_its_unreadable_pages(tmp_path: Path, monkeypatch):
+    import pypdf
+
+    opened = []
+
+    class CountingReader(pypdf.PdfReader):
+        def __init__(self, *args, **kwargs) -> None:
+            opened.append(args)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(pypdf, "PdfReader", CountingReader)
+    pdf = make_pdf(tmp_path / "scan.pdf", ["Readable first page text here.", "", "Third page."])
+
+    result = read_document(pdf)
+
+    assert [p.page for p in result.pages] == [1, 3]
+    assert result.unreadable == [2]
+    assert len(opened) == 1
+
+
+def zip_with(path: Path, members: dict[str, bytes], compression=zipfile.ZIP_DEFLATED) -> Path:
+    with zipfile.ZipFile(path, "w", compression=compression) as archive:
+        for name, data in members.items():
+            archive.writestr(name, data)
+    return path
+
+
+def test_pptx_with_too_many_members_is_refused(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(documents, "MAX_ARCHIVE_MEMBERS", 10)
+    deck = zip_with(tmp_path / "many.pptx", {f"ppt/f{n}.xml": b"<x/>" for n in range(11)})
+    with pytest.raises(UnsupportedFileError, match="many"):
+        load_document(deck)
+
+
+def test_pptx_that_would_expand_too_much_is_refused(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(documents, "MAX_ARCHIVE_BYTES", 5_000)
+    stored = zipfile.ZIP_STORED  # no compression, so only the size limits apply
+    big_total = zip_with(tmp_path / "a.pptx", {"a": b"x" * 3_000, "b": b"x" * 3_000}, stored)
+    with pytest.raises(UnsupportedFileError):
+        load_document(big_total)
+
+    monkeypatch.setattr(documents, "MAX_ARCHIVE_MEMBER_BYTES", 1_000)
+    big_member = zip_with(tmp_path / "b.pptx", {"a": b"x" * 1_500}, stored)
+    with pytest.raises(UnsupportedFileError):
+        load_document(big_member)
+
+
+def test_pptx_with_a_zip_bomb_member_is_refused(tmp_path: Path):
+    bomb = zip_with(tmp_path / "bomb.pptx", {"ppt/slides/slide1.xml": b"\0" * (4 << 20)})
+    with pytest.raises(UnsupportedFileError, match="bomb"):
+        load_document(bomb)

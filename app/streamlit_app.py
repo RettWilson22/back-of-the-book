@@ -52,7 +52,7 @@ reload_package_if_updated()
 
 from backofthebook.answer import Answer, AnswerEngine, Turn, tidy_markdown
 from backofthebook.chunking import chunk_pages
-from backofthebook.documents import SUPPORTED_SUFFIXES, load_document, unreadable_pages
+from backofthebook.documents import SUPPORTED_SUFFIXES, UnsupportedFileError, read_document
 from backofthebook.errors import BackOfTheBookError, ErrorCode
 from backofthebook.index import (
     CorpusIndex,
@@ -80,6 +80,13 @@ INDEX_DIR = Path(os.environ.get("BACKOFTHEBOOK_INDEX") or default_index_dir(ROOT
 # The repo ships a prebuilt sample index, so this only runs if it was deleted (0 to skip).
 USE_SAMPLE = os.environ.get("BACKOFTHEBOOK_SAMPLE", "1") != "0"
 DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+# Limits on what one visitor can upload. The server also refuses files over maxUploadSize
+# (.streamlit/config.toml); the size is checked again here.
+MAX_UPLOAD_MB = 10
+MAX_DOCUMENTS = 5
+MAX_PDF_PAGES = 300
+MAX_CHARS_PER_FILE = 2_000_000
+MAX_SESSION_CHUNKS = 3_000
 
 st.set_page_config(
     page_title="Back of the Book",
@@ -251,26 +258,57 @@ class Document:
     notes: list[str]
 
 
-def process_upload(upload: UploadedFile, embedder: Embedder) -> Document | str:
-    """Read and index one uploaded file. Returns the document, or an error message."""
+def process_upload(upload: UploadedFile, embedder: Embedder, room: int) -> Document | str:
+    """Read and index one uploaded file. Returns the document, or an error message.
+
+    `room` is how many more passages this session can hold.
+    """
+    name = Path(upload.name).name  # never trust a path in an uploaded file's name
+    if upload.size > MAX_UPLOAD_MB * 1024 * 1024:
+        return f"{name} is larger than {MAX_UPLOAD_MB} MB, so it can't be added."
     with tempfile.TemporaryDirectory() as tmp:  # deleted as soon as the file has been read
-        name = Path(upload.name).name  # never trust a path in an uploaded file's name
         path = Path(tmp) / name
         path.write_bytes(upload.getvalue())
         try:
-            pages = load_document(path)
-            blank = unreadable_pages(path)
+            text = read_document(path, max_pages=MAX_PDF_PAGES, max_chars=MAX_CHARS_PER_FILE)
+        except UnsupportedFileError as e:
+            return str(e)
         except Exception:  # a bad upload shouldn't take down the app
             logger.exception("couldn't read upload %s", name)
             return f"Couldn't read {name}. The file may be damaged or password-protected."
-    chunks = chunk_pages(pages)
+    chunks = chunk_pages(text.pages)
     if not chunks:
         return f"Couldn't find any text in {name}. If it's a scan, it can't be read yet."
+    if len(chunks) > room:
+        return (
+            f"{name} is too long to add alongside your other documents. Remove one, or "
+            "upload a shorter file."
+        )
     notes = []
-    if blank:
-        listed = ", ".join(str(n) for n in blank[:10])
+    if text.unreadable:
+        listed = ", ".join(str(n) for n in text.unreadable[:10])
         notes.append(f"Page(s) {listed} have no readable text (probably scanned images).")
-    return Document(name, CorpusIndex.build(chunks, embedder), len(pages), notes)
+    return Document(name, CorpusIndex.build(chunks, embedder), len(text.pages), notes)
+
+
+def add_uploads(uploads: list[UploadedFile], docs: dict[str, Document]) -> list[str]:
+    """Process new uploads into `docs` within the session limits. Returns error messages."""
+    errors = []
+    for upload in uploads:
+        name = Path(upload.name).name
+        if len(docs) >= MAX_DOCUMENTS and name not in docs:
+            errors.append(
+                f"You can add up to {MAX_DOCUMENTS} documents, so {name} wasn't added. "
+                "Remove one to make room."
+            )
+            continue
+        used = sum(len(d.index.chunks) for d in docs.values() if d.name != name)
+        result = process_upload(upload, embedder, MAX_SESSION_CHUNKS - used)
+        if isinstance(result, str):
+            errors.append(result)
+        else:
+            docs[result.name] = result
+    return errors
 
 
 def label(source: str) -> str:
@@ -365,20 +403,16 @@ with ask_tab:
         type=[s.lstrip(".") for s in SUPPORTED_SUFFIXES],
         accept_multiple_files=True,
         key=f"uploader_{st.session_state.uploader_round}",
-        help="PDF slides or notes, PowerPoint decks, Markdown, or text. Your files are only "
+        help="PDF slides or notes, PowerPoint decks, Markdown, or text: up to "
+        f"{MAX_DOCUMENTS} files and {MAX_PDF_PAGES} pages each. Your files are only "
         "visible to you and are gone when you close or refresh the page.",
     )
     if uploads:
         with st.spinner("Reading your files..."):
-            for upload in uploads:
-                result = process_upload(upload, embedder)
-                if isinstance(result, str):
-                    st.session_state.upload_error = result
-                else:
-                    docs[result.name] = result
+            st.session_state.upload_errors = add_uploads(uploads, docs)
         st.session_state.uploader_round += 1  # clears the upload box for the next file
         st.rerun()
-    if error := st.session_state.pop("upload_error", None):
+    for error in st.session_state.pop("upload_errors", []):
         st.error(error)
 
     # The sample textbook can be hidden only while there are uploads to answer from instead.

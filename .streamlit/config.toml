@@ -19,6 +19,8 @@ backgroundColor = "#ebe5d8"
 
 [server]
 enableStaticServing = true
+# Megabytes per uploaded file. The app also checks this, and limits pages and files.
+maxUploadSize = 10
 
 [client]
 toolbarMode = "minimal"

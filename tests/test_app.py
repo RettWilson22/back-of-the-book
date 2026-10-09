@@ -352,3 +352,47 @@ def test_sample_comes_back_when_the_last_upload_is_removed(app):
     assert not at.exception
     assert at.button_group[0].options  # the built-in material is back, so Ask still works
     assert not any(b.key == "hide_sample" for b in at.button)  # nothing to fall back on
+
+
+# --- Uploads ---------------------------------------------------------------------------------
+
+
+def upload(at: AppTest, *files: tuple[str, bytes]) -> AppTest:
+    return at.file_uploader[0].set_value([(n, data, "text/markdown") for n, data in files]).run()
+
+
+def notes(n: int) -> tuple[str, bytes]:
+    return f"notes{n}.md", f"# Notes {n}\nDecision trees split data on features, part {n}.".encode()
+
+
+def test_uploaded_file_is_read_and_listed(app):
+    at = upload(app(FakeLLM()), notes(1))
+
+    assert not at.exception
+    assert list(at.session_state["docs"]) == ["notes1.md"]
+    assert not at.error
+
+
+def test_upload_larger_than_the_size_limit_is_refused(app):
+    at = upload(app(FakeLLM()), ("big.md", b"a " * (5 * 1024 * 1024 + 1)))
+
+    assert not at.exception
+    assert at.session_state["docs"] == {}
+    assert any("larger than 10 MB" in e.value for e in at.error)
+
+
+def test_a_session_can_hold_at_most_five_documents(app):
+    at = upload(app(FakeLLM()), *[notes(n) for n in range(6)])
+
+    assert not at.exception
+    assert len(at.session_state["docs"]) == 5
+    assert any("up to 5 documents" in e.value for e in at.error)
+
+
+def test_upload_that_would_exceed_the_session_passage_limit_is_refused(app):
+    sections = "".join(f"# Part {n}\nThis section has a few words.\n" for n in range(3001))
+    at = upload(app(FakeLLM()), ("huge.md", sections.encode()))
+
+    assert not at.exception
+    assert at.session_state["docs"] == {}
+    assert any("too long" in e.value for e in at.error)
