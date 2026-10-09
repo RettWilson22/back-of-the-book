@@ -63,3 +63,17 @@ def test_overlap_must_be_smaller_than_window():
 def test_citation_prefers_printed_page_label():
     assert Chunk("id", "book.pdf", 21, "text", label="11").citation == "book.pdf, p. 11"
     assert Chunk("id", "deck.pptx", 4, "text").citation == "deck.pptx, p. 4"
+
+
+def test_chunks_stay_short_even_without_spaces():
+    """A word is only a run of non-spaces, so one huge "word" could make a huge passage."""
+    chunks = chunk_pages([Page("blob.txt", 1, "start of text " + "x" * 50_000 + " end")])
+
+    assert chunks
+    assert max(len(c.text) for c in chunks) <= 2_000
+    assert sum(len(c.text.replace(" ", "")) for c in chunks) >= 50_000
+
+
+def test_window_character_limit_keeps_ordinary_text_unchanged():
+    page = long_page(23)
+    assert chunk_pages([page]) == chunk_pages([page], max_chars=100_000)

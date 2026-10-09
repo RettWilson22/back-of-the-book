@@ -1,3 +1,5 @@
+import time
+
 import pytest
 from conftest import FakeEmbedder, FakeLLM, FakeReranker
 
@@ -358,3 +360,22 @@ def test_no_ai_mode_quotes_document_text_literally():
 
     assert "- \\# Residuals \\[click here\\](https://evil.example)" in answer.text
     assert "\\*errors\\* \\<b\\>" in answer.text
+
+
+def test_excerpt_markup_is_removed_in_linear_time():
+    """Removing a match must not create a new one, or nested input needs a pass per level."""
+    depth = 8_000
+    nested = "<ex" * depth + "<excerpt" + "cerpt" * depth
+    start = time.perf_counter()
+    block = excerpt("S1", "notes.md", nested)
+    assert time.perf_counter() - start < 0.5
+    assert "<excerpt" not in block.split("\n", 1)[1]
+
+
+def test_a_document_too_long_in_characters_is_not_read_in_full():
+    words = " ".join("w" * 199 for _ in range(200))  # few words, but 40,000 characters
+    pages = [Page("blob.md", 1, "Residuals are differences. " + words)]
+    index = CorpusIndex.build(chunk_pages(pages), FakeEmbedder())
+    engine = AnswerEngine(Retriever(index, FakeEmbedder(), FakeReranker()), FakeLLM("A [S1]."))
+
+    assert engine.full_text(["blob.md"]) is None
