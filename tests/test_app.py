@@ -30,7 +30,13 @@ def app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
         monkeypatch.setattr("backofthebook.index.SentenceTransformerEmbedder", Embedder)
         monkeypatch.setattr("backofthebook.retrieval.CrossEncoderReranker", FakeReranker)
-        monkeypatch.setattr("backofthebook.llm.make_provider", lambda name=None: llm)
+
+        def make_provider(name: str | None = None, **options: Any) -> FakeLLM:
+            llm.provider_requests.append((name, options))
+            return llm
+
+        llm.provider_requests = []
+        monkeypatch.setattr("backofthebook.llm.make_provider", make_provider)
         at = AppTest.from_file(APP, default_timeout=30)
         at.run()
         assert not at.exception, at.exception
@@ -468,3 +474,22 @@ def test_quiz_text_from_the_model_is_shown_as_text_never_as_html(app):
     assert "![" not in " ".join(m.value for m in at.markdown)
     radio = question_radio(at, "Which value is missing?")
     assert "\\<NA\\>" in radio.options and "\\<b\\>" in radio.label
+
+
+def test_claude_is_not_offered_unless_the_operator_allows_it(app, monkeypatch):
+    monkeypatch.delenv("BACKOFTHEBOOK_ALLOW_CLAUDE", raising=False)
+    llm = FakeLLM()
+    at = app(llm)
+
+    assert "Claude" not in at.selectbox[0].options
+    assert llm.provider_requests[-1] == (None, {"allow_claude": False})
+
+
+def test_claude_can_be_offered_on_a_private_deployment(app, monkeypatch):
+    monkeypatch.setenv("BACKOFTHEBOOK_ALLOW_CLAUDE", "1")
+    llm = FakeLLM()
+    at = app(llm)
+    at.selectbox[0].set_value("Claude").run()
+
+    assert not at.exception
+    assert llm.provider_requests[-1] == ("claude", {"allow_claude": True})
