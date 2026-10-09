@@ -251,13 +251,14 @@ def load_models(model_name: str) -> tuple[SentenceTransformerEmbedder, CrossEnco
 
 
 @st.cache_resource(show_spinner=False)
-def build_sample(index_dir: Path) -> str | None:
+def build_sample(index_dir: Path) -> bool:
     """Build the sample index once per server process; concurrent sessions wait for it."""
     try:
         build_sample_index(ROOT / "data" / "corpus", index_dir, SentenceTransformerEmbedder())
-    except Exception as e:  # e.g. no network; the app still works with uploads
-        return str(e)
-    return None
+    except Exception:  # e.g. no network; the app still works with uploads
+        logger.exception("couldn't build the sample index")
+        return False
+    return True
 
 
 @st.cache_resource(show_spinner=False)
@@ -302,10 +303,25 @@ class Document:
     notes: list[str]
 
 
+MAX_NAME_CHARS = 120
+
+
 def upload_name(raw: str) -> str:
-    """The name an uploaded file is listed and cited under. A path in it is never trusted, and
-    it can't form a Markdown image, since labels that show it render Markdown."""
-    return Path(raw).name.replace("![", "! [")
+    """The name an uploaded file is listed and cited under.
+
+    A path in it is never trusted. It can't form a Markdown image, since labels that show it
+    render Markdown. A very long name is shortened, keeping its extension, so it fits on screen
+    and within the file system's limit on name length.
+    """
+    name = Path(raw).name.replace("![", "! [")
+    if name in ("", ".", ".."):
+        return "upload"
+    suffix = Path(name).suffix[:10]
+    stem = name[: len(name) - len(suffix)]
+    while len(name) > MAX_NAME_CHARS or len(name.encode()) > 200:
+        stem = stem[: min(len(stem) - 1, MAX_NAME_CHARS - len(suffix) - 1)]
+        name = stem.rstrip() + "…" + suffix
+    return name
 
 
 def process_upload(upload: UploadedFile, embedder: Embedder, room: int) -> Document | str:
@@ -316,29 +332,30 @@ def process_upload(upload: UploadedFile, embedder: Embedder, room: int) -> Docum
     name = upload_name(upload.name)
     if upload.size > MAX_UPLOAD_MB * 1024 * 1024:
         return f"{name} is larger than {MAX_UPLOAD_MB} MB, so it can't be added."
-    with tempfile.TemporaryDirectory() as tmp:  # deleted as soon as the file has been read
-        path = Path(tmp) / name
-        path.write_bytes(upload.getvalue())
-        try:
+    try:  # a bad upload shouldn't take down the app
+        with tempfile.TemporaryDirectory() as tmp:  # deleted as soon as the file has been read
+            path = Path(tmp) / name
+            path.write_bytes(upload.getvalue())
             text = read_document(path, max_pages=MAX_PDF_PAGES, max_chars=MAX_CHARS_PER_FILE)
-        except UnsupportedFileError as e:
-            return str(e)
-        except Exception:  # a bad upload shouldn't take down the app
-            logger.exception("couldn't read upload %s", name)
-            return f"Couldn't read {name}. The file may be damaged or password-protected."
-    chunks = chunk_pages(text.pages)
-    if not chunks:
-        return f"Couldn't find any text in {name}. If it's a scan, it can't be read yet."
-    if len(chunks) > room:
-        return (
-            f"{name} is too long to add alongside your other documents. Remove one, or "
-            "upload a shorter file."
-        )
+        chunks = chunk_pages(text.pages)
+        if not chunks:
+            return f"Couldn't find any text in {name}. If it's a scan, it can't be read yet."
+        if len(chunks) > room:
+            return (
+                f"{name} is too long to add alongside your other documents. Remove one, or "
+                "upload a shorter file."
+            )
+        index = CorpusIndex.build(chunks, embedder)
+    except UnsupportedFileError as e:
+        return str(e)
+    except Exception:
+        logger.exception("couldn't read upload %s", name)
+        return f"Couldn't read {name}. The file may be damaged or password-protected."
     notes = []
     if text.unreadable:
         listed = ", ".join(str(n) for n in text.unreadable[:10])
         notes.append(f"Page(s) {listed} have no readable text (probably scanned images).")
-    return Document(name, CorpusIndex.build(chunks, embedder), len(text.pages), notes)
+    return Document(name, index, len(text.pages), notes)
 
 
 def add_uploads(uploads: list[UploadedFile], docs: dict[str, Document]) -> list[str]:
@@ -445,8 +462,8 @@ if USE_SAMPLE and not (INDEX_DIR / "meta.json").exists():
     with st.spinner(
         "First start: downloading the sample textbook and indexing it. This takes about a minute."
     ):
-        if error := build_sample(INDEX_DIR):
-            st.warning(f"Couldn't set up the sample textbook ({error}). You can upload files.")
+        if not build_sample(INDEX_DIR):
+            st.warning("Couldn't set up the sample textbook. You can still upload files.")
 base_index = load_base_index()
 embedder, reranker = load_models(base_index.embedding_model if base_index else DEFAULT_MODEL)
 
@@ -572,18 +589,24 @@ def show_error(error: BackOfTheBookError) -> None:
     st.caption(f"Error code: `{error.code}`")
 
 
+def coded(error: Exception, task: str) -> BackOfTheBookError:
+    """The coded error to show for a failure. Call it from an `except` block: anything
+    unexpected is logged with its traceback and shown only as INTERNAL_ERROR."""
+    if isinstance(error, BackOfTheBookError):
+        logger.info("%s failed: %r", task, error)
+        return error
+    logger.exception("unexpected error while %s", task)
+    return BackOfTheBookError(
+        ErrorCode.INTERNAL_ERROR, "Something went wrong on our side. Please try again."
+    )
+
+
 def guarded(action: Callable[[], Quiz], slot: DeltaGenerator) -> Quiz | None:
     """Run a quiz request, turning every failure into a coded, user-facing message in `slot`."""
     try:
         return action()
-    except BackOfTheBookError as e:
-        logger.info("quiz request failed: %r", e)
-        error = e
-    except Exception:
-        logger.exception("unexpected error while generating a quiz")
-        error = BackOfTheBookError(
-            ErrorCode.INTERNAL_ERROR, "Something went wrong on our side. Please try again."
-        )
+    except Exception as e:
+        error = coded(e, "generating a quiz")
     with slot.container():
         show_error(error)
     return None
@@ -706,16 +729,14 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
 def stream_reply(question: str, sources: list[str] | None) -> dict[str, object] | None:
     """Stream one reply with a live "Thinking" status, then the answer and its sources."""
     history = [Turn(str(t["question"]), str(t["text"])) for t in st.session_state.turns]
+    status = None
+    reply_box = None
     try:
         answer, events = engine.stream(question, history, sources)
-    except BackOfTheBookError as e:
-        show_error(e)
-        return None
-    status = None if llm.name == "extractive" else st.status("Thinking...", expanded=False)
-    thought_box = status.empty() if status else None
-    reply_box = st.empty()
-    thinking, text = "", ""
-    try:
+        status = None if llm.name == "extractive" else st.status("Thinking...", expanded=False)
+        thought_box = status.empty() if status else None
+        reply_box = st.empty()
+        thinking, text = "", ""
         for event in events:
             if event.kind == "thinking" and thought_box is not None:
                 thinking += event.text
@@ -725,17 +746,20 @@ def stream_reply(question: str, sources: list[str] | None) -> dict[str, object] 
                     status.update(label=thought_label(answer.thinking_seconds), state="complete")
                 text += event.text
                 reply_box.markdown(tidy_markdown(text) + " ▌")
-    except BackOfTheBookError as e:
-        if status is not None:
-            status.update(label="Something went wrong", state="error")
-        show_error(e)
-        return None
-    if status is not None and not text:
-        status.update(label=thought_label(answer.thinking_seconds), state="complete")
-    reply_box.markdown(answer.text)
-    record = turn_record(answer)
-    render_answer_footer(record)
-    return record
+        if status is not None and not text:
+            status.update(label=thought_label(answer.thinking_seconds), state="complete")
+        reply_box.markdown(answer.text)
+        record = turn_record(answer)
+        render_answer_footer(record)
+        return record
+    except Exception as e:
+        error = coded(e, "answering a question")
+    if reply_box is not None:
+        reply_box.empty()  # don't leave half an answer on screen
+    if status is not None:
+        status.update(label="Something went wrong", state="error")
+    show_error(error)
+    return None
 
 
 def ask_example(question: str) -> None:

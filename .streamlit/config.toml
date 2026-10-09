@@ -24,3 +24,5 @@ maxUploadSize = 10
 
 [client]
 toolbarMode = "minimal"
+# Never show tracebacks or exception messages to visitors; they go to the server log.
+showErrorDetails = "none"
