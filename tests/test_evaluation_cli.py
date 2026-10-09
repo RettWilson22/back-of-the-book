@@ -13,6 +13,7 @@ from backofthebook.evaluation import (
     format_report,
     load_questions,
 )
+from backofthebook.index import CorpusIndex
 from backofthebook.retrieval import Mode, Retriever
 
 
@@ -126,3 +127,25 @@ def test_cli_quiz_without_llm_reports_error(tmp_path: Path, fake_models, capsys)
 
     assert cli.main(["--index", str(index), "quiz", "decision trees"]) == 4
     assert "Error [NO_LLM_CONFIGURED]: Quiz generation needs an LLM" in capsys.readouterr().err
+
+
+def test_cli_ingest_refuses_two_files_with_the_same_name(tmp_path: Path, fake_models, capsys):
+    for week in ("week1", "week2"):
+        (tmp_path / "docs" / week).mkdir(parents=True)
+        (tmp_path / "docs" / week / "notes.md").write_text(f"# Notes\nThe {week} notes on trees.")
+    index = tmp_path / "index"
+
+    assert cli.main(["--index", str(index), "ingest", str(tmp_path / "docs")]) == 2
+    err = capsys.readouterr().err
+    assert "Error [DUPLICATE_FILE_NAMES]" in err and "notes.md" in err
+    assert "week1" in err and "week2" in err
+    assert not index.exists()
+
+
+def test_cli_ingest_accepts_the_same_file_named_twice(tmp_path: Path, fake_models):
+    notes = tmp_path / "notes.md"
+    notes.write_text("# Notes\nDecision trees split data on features.")
+
+    assert cli.main(["--index", str(tmp_path / "i"), "ingest", str(notes), str(tmp_path)]) == 0
+    ids = [c.id for c in CorpusIndex.load(tmp_path / "i").chunks]
+    assert len(ids) == len(set(ids)) == 1
