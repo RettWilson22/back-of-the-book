@@ -1,5 +1,5 @@
 import pytest
-from conftest import FakeLLM
+from conftest import FakeEmbedder, FakeLLM, FakeReranker
 
 from backofthebook.answer import (
     NOT_FOUND_MESSAGE,
@@ -10,6 +10,9 @@ from backofthebook.answer import (
     retrieval_query,
     tidy_markdown,
 )
+from backofthebook.chunking import chunk_pages
+from backofthebook.documents import Page
+from backofthebook.index import CorpusIndex
 from backofthebook.llm import ExtractiveProvider
 from backofthebook.quiz import (
     Quiz,
@@ -182,3 +185,34 @@ def test_tidy_markdown_keeps_formulas_in_table_rows_on_one_line():
     tidy = tidy_markdown(row)
     assert tidy == "| Precision | share correct | $$\\frac{TP} {TP+FP}$$ | high stakes |"
     assert "\n" not in tidy
+
+
+LECTURE = "Lecture 3 (Regression).pdf"
+
+
+def lecture_engine(**kwargs) -> AnswerEngine:
+    pages = [
+        Page(LECTURE, 1, "Lecture three covers linear regression for this course."),
+        Page(LECTURE, 2, "Residuals are the differences between observed and fitted values."),
+        Page(LECTURE, 3, "The slope estimate tells how much y changes when x grows by one."),
+    ]
+    index = CorpusIndex.build(chunk_pages(pages), FakeEmbedder())
+    retriever = Retriever(index, FakeEmbedder(), FakeReranker())
+    return AnswerEngine(retriever, ExtractiveProvider(), **kwargs)
+
+
+def test_no_ai_mode_quotes_passages_from_files_with_parentheses_in_their_names():
+    answer = lecture_engine(min_similarity=0.0).ask("what are residuals between observed values")
+
+    assert answer.grounded
+    assert "No matching passages" not in answer.text
+    assert "differences between observed and fitted values" in answer.text
+    assert answer.cited and answer.cited_hits[0][1].chunk.source == LECTURE
+
+
+def test_no_ai_mode_ranks_a_document_read_in_full_by_the_question():
+    answer = lecture_engine().ask("how does the slope estimate change y", sources=[LECTURE])
+
+    first = answer.text.split("\n\n", 1)[1]
+    assert first.startswith("- The slope estimate")
+    assert answer.cited_hits[0][1].chunk.page == 3

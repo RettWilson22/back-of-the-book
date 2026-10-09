@@ -45,6 +45,9 @@ NOT_FOUND_MESSAGE = (
     "to get answers to questions your materials don't cover."
 )
 NO_EXCERPTS_NOTE = "(No relevant excerpts were found in the student's course materials.)"
+# With no AI model, the reply is the best-matching passages themselves.
+QUOTED_PASSAGES = 3
+QUOTE_INTRO = "No AI is set up, so here are the most relevant passages:"
 
 # Models don't always follow the requested format, so accept [S1], (S1), [S1][S2],
 # (S1, S2), and [S1; S3]. Each bracketed group may list several labels.
@@ -153,12 +156,21 @@ class AnswerEngine:
         """Whether the materials contain anything semantically close to the question."""
         return self.retriever.top_similarity(question, sources) >= self.min_similarity
 
+    def full_text(self, sources: Collection[str] | None) -> list[Hit] | None:
+        """Every passage of the chosen documents, in order, if they are short enough to read
+        in full; otherwise None."""
+        if not sources:
+            return None
+        chosen = [c for c in self.retriever.index.chunks if c.source in set(sources)]
+        if sum(len(c.text.split()) for c in chosen) > self.full_text_words:
+            return None
+        return [Hit(c, 1.0) for c in chosen]
+
     def select_passages(self, query: str, sources: Collection[str] | None) -> list[Hit]:
         """The passages the model will read for this question."""
-        if sources:
-            chosen = [c for c in self.retriever.index.chunks if c.source in set(sources)]
-            if sum(len(c.text.split()) for c in chosen) <= self.full_text_words:
-                return [Hit(c, 1.0) for c in chosen]  # short documents: read all of it
+        full = self.full_text(sources)
+        if full is not None:
+            return full
         if not self.is_in_scope(query, sources):
             return []
         hits = self.retriever.search(query, k=self.k, mode=self.mode, sources=sources)
@@ -183,12 +195,13 @@ class AnswerEngine:
         """
         history = (history or [])[-self.max_history :]
         answer = Answer(question)
-        answer.sources = self.select_passages(retrieval_query(question, history), sources)
+        query = retrieval_query(question, history)
+        answer.sources = self.select_passages(query, sources)
         answer.grounded = bool(answer.sources)
 
-        if not answer.grounded and self.llm.name == "extractive":
-            answer.text = NOT_FOUND_MESSAGE
-            return answer, iter([StreamEvent("text", NOT_FOUND_MESSAGE)])
+        if self.llm.name == "extractive":
+            self.quote_passages(answer, query, sources)
+            return answer, iter([StreamEvent("text", answer.text)])
 
         messages: list[Message] = []
         for turn in history:
@@ -218,6 +231,23 @@ class AnswerEngine:
                 )
 
         return answer, events()
+
+    def quote_passages(self, answer: Answer, query: str, sources: Collection[str] | None) -> None:
+        """No-AI mode: answer with the passages that best match the question."""
+        if not answer.grounded:
+            answer.text = NOT_FOUND_MESSAGE
+            return
+        hits = answer.sources
+        if self.full_text(sources) is not None:  # read in full, so in document order: rank them
+            hits = self.retriever.search(query, k=QUOTED_PASSAGES, mode=self.mode, sources=sources)
+        answer.sources = hits[:QUOTED_PASSAGES]
+        lines = [QUOTE_INTRO, ""]
+        for n, hit in enumerate(answer.sources, start=1):
+            snippet = " ".join(hit.chunk.text.split())
+            more = "…" if len(snippet) > 400 else ""
+            lines.append(f"- {snippet[:400]}{more} [S{n}]")
+        answer.text = tidy_markdown("\n".join(lines))
+        answer.cited = list(range(1, len(answer.sources) + 1))
 
     def ask(
         self,
