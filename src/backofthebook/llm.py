@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -242,8 +243,8 @@ class GroqProvider:
             raise _groq_error(e) from e
 
     def generate(self, system: str, user: str, schema: type[T]) -> T:
-        schema_hint = "\n\nRespond with only a JSON object matching this JSON Schema:\n" + str(
-            schema.model_json_schema()
+        schema_hint = "\n\nRespond with only a JSON object matching this JSON Schema:\n" + (
+            json.dumps(schema.model_json_schema())
         )
         messages = [
             {"role": "system", "content": system + schema_hint},
@@ -251,8 +252,8 @@ class GroqProvider:
         ]
         import groq
 
-        last_error: ValidationError | None = None
-        for _ in range(2):  # one repair attempt with the validation error as feedback
+        problem = ""
+        for _ in range(2):  # one repair attempt with the problem as feedback
             try:
                 response = self.client.chat.completions.create(
                     model=self.model,
@@ -261,25 +262,44 @@ class GroqProvider:
                     max_completion_tokens=GROQ_QUIZ_MAX_TOKENS,
                     response_format={"type": "json_object"},
                 )
+            except groq.BadRequestError as e:
+                failed = _rejected_json(e)
+                if failed is None:
+                    raise _groq_error(e) from e
+                content, problem = failed, "it didn't parse as JSON"
             except groq.APIError as e:
                 raise _groq_error(e) from e
-            content = response.choices[0].message.content or ""
-            try:
-                return schema.model_validate_json(_extract_json(content))
-            except ValidationError as e:
-                last_error = e
-                messages += [
-                    {"role": "assistant", "content": content},
-                    {
-                        "role": "user",
-                        "content": f"That JSON was invalid: {e}. Return corrected JSON.",
-                    },
-                ]
+            else:
+                content = response.choices[0].message.content or ""
+                try:
+                    return schema.model_validate_json(_extract_json(content))
+                except ValidationError as e:
+                    problem = str(e)
+            messages = [
+                *messages,
+                {"role": "assistant", "content": content or "(no output)"},
+                {
+                    "role": "user",
+                    "content": f"That JSON was invalid: {problem}. Return corrected JSON.",
+                },
+            ]
         raise LLMError(
             ErrorCode.LLM_BAD_RESPONSE,
             "Groq's response wasn't in the expected format, even after a retry. Try again.",
-            details={"validation_error": str(last_error)},
+            details={"validation_error": problem},
         )
+
+
+def _rejected_json(error: Exception) -> str | None:
+    """When Groq's JSON mode refused the model's own output (HTTP 400 with the code
+    json_validate_failed), the output it refused; otherwise None. That is a bad response from
+    the model, not a bad request, so it gets the same repair retry as invalid JSON."""
+    body = getattr(error, "body", None)
+    if isinstance(body, dict):
+        body = body.get("error", body)
+    if isinstance(body, dict) and body.get("code") == "json_validate_failed":
+        return str(body.get("failed_generation") or "")
+    return None
 
 
 class ExtractiveProvider:

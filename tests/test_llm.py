@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import threading
 from types import SimpleNamespace
 from typing import Any
@@ -206,6 +207,8 @@ class FakeGroqClient:
                 for r, c in self._deltas
             ]
         content = self._replies.pop(0)
+        if isinstance(content, Exception):
+            raise content
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
 
 
@@ -391,3 +394,50 @@ def test_provider_error_messages_shown_to_users_are_generic():
         assert mapped.details["status"] == 400
     for mapped in (_groq_error(ValueError("internal detail")), _claude_error(KeyError("x"))):
         assert "internal detail" not in mapped.message and "KeyError" not in mapped.message
+
+
+def _groq_bad_request(code: str, failed_generation: str = "") -> groq.BadRequestError:
+    request = httpx.Request("POST", "https://api.groq.com")
+    error = {"message": "Failed", "type": "invalid_request_error", "code": code}
+    if failed_generation:
+        error["failed_generation"] = failed_generation
+    return groq.BadRequestError(
+        "Error code: 400", response=httpx.Response(400, request=request), body={"error": error}
+    )
+
+
+def test_groq_schema_hint_is_real_json():
+    client = FakeGroqClient(replies=['{"value": 3}'])
+    GroqProvider(client=client).generate("sys", "q", Answer)
+
+    system = client.calls[0]["messages"][0]["content"]
+    assert json.dumps(Answer.model_json_schema()) in system
+
+
+def test_groq_json_validation_failure_gets_the_repair_retry():
+    rejected = _groq_bad_request("json_validate_failed", '{"value": "three"')
+    client = FakeGroqClient(replies=[rejected, '{"value": 3}'])
+
+    assert GroqProvider(client=client).generate("sys", "q", Answer) == Answer(value=3)
+    retry = client.calls[1]["messages"]
+    assert retry[-2] == {"role": "assistant", "content": '{"value": "three"'}
+    assert "invalid" in retry[-1]["content"]
+
+
+def test_groq_json_validation_failing_twice_is_a_bad_response():
+    rejected = _groq_bad_request("json_validate_failed")
+    client = FakeGroqClient(replies=[rejected, rejected])
+
+    with pytest.raises(LLMError) as raised:
+        GroqProvider(client=client).generate("sys", "q", Answer)
+    assert raised.value.code is ErrorCode.LLM_BAD_RESPONSE
+    assert len(client.calls) == 2
+
+
+def test_groq_other_bad_requests_are_not_retried():
+    client = FakeGroqClient(replies=[_groq_bad_request("model_not_found")])
+
+    with pytest.raises(LLMError) as raised:
+        GroqProvider(client=client).generate("sys", "q", Answer)
+    assert raised.value.code is ErrorCode.LLM_REQUEST_REJECTED
+    assert len(client.calls) == 1
