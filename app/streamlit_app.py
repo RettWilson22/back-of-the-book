@@ -61,8 +61,9 @@ from backofthebook.answer import (
 )
 from backofthebook.chunking import chunk_pages
 from backofthebook.documents import SUPPORTED_SUFFIXES, UnsupportedFileError, read_document
-from backofthebook.errors import BackOfTheBookError, ErrorCode
+from backofthebook.errors import CATALOG, BackOfTheBookError, ErrorCode
 from backofthebook.index import (
+    DEFAULT_EMBEDDING_MODEL,
     CorpusIndex,
     Embedder,
     IndexBuildError,
@@ -95,7 +96,6 @@ ALLOW_CLAUDE = os.environ.get("BACKOFTHEBOOK_ALLOW_CLAUDE") == "1"
 # server and per visitor session, so nobody can run up the API bill or use up the rate limit.
 LLM_CALLS_PER_MINUTE = int(os.environ.get("BACKOFTHEBOOK_LLM_CALLS_PER_MINUTE", "30"))
 LLM_CALLS_PER_SESSION = int(os.environ.get("BACKOFTHEBOOK_LLM_CALLS_PER_SESSION", "40"))
-DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 # Limits on what one visitor can upload. The server also refuses files over maxUploadSize
 # (.streamlit/config.toml); the size is checked again here.
 MAX_UPLOAD_MB = 10
@@ -234,16 +234,12 @@ FOOTER = """
 st.markdown(STYLE, unsafe_allow_html=True)
 st.markdown(MASTHEAD, unsafe_allow_html=True)
 
-# Errors caused by what the user typed are shown as information, not as failures.
-_INPUT_ERRORS = {
-    ErrorCode.EMPTY_TOPIC,
-    ErrorCode.TOPIC_TOO_LONG,
-    ErrorCode.INVALID_QUESTION_COUNT,
-    ErrorCode.INVALID_DIFFICULTY,
-    ErrorCode.QUESTION_TOO_LONG,
-    ErrorCode.TOPIC_NOT_COVERED,
-    ErrorCode.SOURCE_NOT_FOUND,
-    ErrorCode.USAGE_LIMIT,
+# Errors the visitor can act on (a typo, a topic the materials don't cover, a usage limit) are
+# shown as hints, not as failures.
+_HINT_ERRORS = {
+    code
+    for code, info in CATALOG.items()
+    if info.category in ("invalid request", "no source", "usage limit")
 }
 
 
@@ -486,7 +482,7 @@ if USE_SAMPLE and not (INDEX_DIR / "meta.json").exists():
         if not build_sample(INDEX_DIR):
             st.warning("Couldn't set up the sample textbook. You can still upload files.")
 base_index = load_base_index()
-model_name = base_index.embedding_model if base_index else DEFAULT_MODEL
+model_name = base_index.embedding_model if base_index else DEFAULT_EMBEDDING_MODEL
 # Built-in materials can be named in public problem reports; visitors' uploads can't.
 public_sources = base_index.sources if base_index else []
 embedder, reranker = load_models(model_name)
@@ -626,7 +622,7 @@ engine = AnswerEngine(retriever, llm)
 
 def show_error(error: BackOfTheBookError) -> None:
     hint = " Trying again may work." if error.retryable else ""
-    if error.code in _INPUT_ERRORS:  # the user's own typo: no need for a code
+    if error.code in _HINT_ERRORS:  # nothing went wrong, so no need for a code
         st.info(error.message)
         return
     st.error(error.message + hint)
