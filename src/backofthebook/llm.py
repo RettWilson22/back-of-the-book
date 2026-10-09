@@ -83,6 +83,21 @@ def _status_error(provider: str, status: int) -> LLMError:
     )
 
 
+CUT_OFF_NOTE = "\n\n*(The answer was cut off here because it reached its length limit.)*"
+
+
+def _cut_off(provider: str, answered: bool) -> Iterator[StreamEvent]:
+    """How a reply that hit the output cap ends: a note after a partial answer, or an error
+    if the cap was used up (by reasoning) before any answer was written."""
+    if not answered:
+        raise LLMError(
+            ErrorCode.LLM_BAD_RESPONSE,
+            f"{provider} reached its length limit before it could answer. Try asking for less "
+            "at once.",
+        )
+    yield StreamEvent("text", CUT_OFF_NOTE)
+
+
 def _claude_error(e: Exception) -> LLMError:
     """Map Anthropic SDK exceptions (most specific first) to coded errors."""
     import anthropic
@@ -155,18 +170,22 @@ class ClaudeProvider:
                 betas=[FALLBACK_BETA],
                 fallbacks="default",
             ) as stream:
+                answered = False
                 for event in stream:
                     if event.type != "content_block_delta":
                         continue
                     if event.delta.type == "thinking_delta" and event.delta.thinking:
                         yield StreamEvent("thinking", event.delta.thinking)
                     elif event.delta.type == "text_delta" and event.delta.text:
+                        answered = True
                         yield StreamEvent("text", event.delta.text)
                 final = stream.get_final_message()
         except anthropic.APIError as e:
             raise _claude_error(e) from e
         if final.stop_reason == "refusal":
             raise LLMError(ErrorCode.LLM_REFUSED, "Claude declined to answer this request.")
+        if final.stop_reason == "max_tokens":
+            yield from _cut_off("Claude", answered)
 
     def generate(self, system: str, user: str, schema: type[T]) -> T:
         import anthropic
@@ -233,14 +252,21 @@ class GroqProvider:
                 stream=True,
                 **extra,
             )
+            answered, finish = False, None
             for chunk in stream:
+                if not chunk.choices:
+                    continue
                 delta = chunk.choices[0].delta
                 if getattr(delta, "reasoning", None):
                     yield StreamEvent("thinking", delta.reasoning)
                 if delta.content:
+                    answered = True
                     yield StreamEvent("text", delta.content)
+                finish = getattr(chunk.choices[0], "finish_reason", None) or finish
         except groq.APIError as e:
             raise _groq_error(e) from e
+        if finish == "length":
+            yield from _cut_off("Groq", answered)
 
     def generate(self, system: str, user: str, schema: type[T]) -> T:
         schema_hint = "\n\nRespond with only a JSON object matching this JSON Schema:\n" + (
@@ -270,6 +296,12 @@ class GroqProvider:
             except groq.APIError as e:
                 raise _groq_error(e) from e
             else:
+                if getattr(response.choices[0], "finish_reason", None) == "length":
+                    # Asking again would hit the same limit.
+                    raise LLMError(
+                        ErrorCode.LLM_BAD_RESPONSE,
+                        "Groq's response was cut off at its length limit; try fewer questions.",
+                    )
                 content = response.choices[0].message.content or ""
                 try:
                     return schema.model_validate_json(_extract_json(content))
