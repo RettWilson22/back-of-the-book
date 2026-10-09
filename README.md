@@ -110,7 +110,7 @@ Invalid input is rejected **before** any API call. A test checks that every code
 | [`chunking.py`](src/backofthebook/chunking.py) | Sentence-aware chunking with overlap, scoped to one page. |
 | [`index.py`](src/backofthebook/index.py) | Builds, saves, and loads the index (`chunks.jsonl`, `embeddings.npy`, `meta.json`). No database server. |
 | [`retrieval.py`](src/backofthebook/retrieval.py) | Four retrieval modes behind one interface, so the eval compares them on identical inputs. |
-| [`llm.py`](src/backofthebook/llm.py) | Claude, Groq, and offline providers behind one small interface. |
+| [`llm.py`](src/backofthebook/llm.py) | Claude, Groq, and offline providers behind one small interface, plus the limit on model requests per minute. |
 | [`answer.py`](src/backofthebook/answer.py) | Conversation memory, relevance check, prompt, streaming reasoning and answer, citation validation. |
 | [`quiz.py`](src/backofthebook/quiz.py) | Course quiz and Quiz generator, difficulty levels, validation, source check. |
 | [`wiki.py`](src/backofthebook/wiki.py) | Finds a topic's Wikipedia article (skipping disambiguation pages) and picks passages spread across the whole article, leaving out references and link lists. |
@@ -184,13 +184,13 @@ Use your own materials with `backofthebook ingest path/to/slides/`, or upload fi
 ## Testing
 
 ```bash
-pytest                 # 150 tests, about 10 s, no downloads or API keys needed (fake models and LLM)
+pytest                 # 232 tests, about 20 s, no downloads or API keys needed (fake models and LLM)
 pytest -m slow         # real embedding/reranking models; includes a guard that fails
                        # if textbook Recall@10 drops below 95% or MRR below 0.80
 ruff check . && mypy src app/streamlit_app.py
 ```
 
-The fast tests cover every module (96% line coverage of `src/`), every error code, the CLI end to end including exit codes, and the web app through Streamlit's `AppTest`: asking, follow-up questions, referencing a document, reasoning display, general-knowledge labeling, taking and grading both kinds of quiz, and how errors are shown. CI runs lint, strict type checking, and tests on every push.
+The fast tests cover every module (97% line coverage of `src/`), every error code, the CLI end to end including exit codes, and the web app through Streamlit's `AppTest`: asking, follow-up questions, referencing a document, reasoning display, general-knowledge labeling, taking and grading both kinds of quiz, uploads and their limits, the limits on model requests, and how errors are shown. CI runs lint, strict type checking, and tests on every push.
 
 ## Limitations
 
