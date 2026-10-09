@@ -7,14 +7,21 @@ Citations are only as good as the location data behind them, so every loader ret
 from __future__ import annotations
 
 import re
+import zipfile
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 SUPPORTED_SUFFIXES = (".pdf", ".pptx", ".md", ".txt")
 # Repeated headers/footers are only stripped from long documents (books). In short documents a
 # line on every page is usually real content, like the course name or the teacher's name.
 BOILERPLATE_MIN_PAGES = 12
+# A .pptx is a zip archive. These limits refuse archives that would expand to far more data
+# than any real slide deck before python-pptx opens them.
+MAX_ARCHIVE_MEMBERS = 2000
+MAX_ARCHIVE_BYTES = 100 * 1024 * 1024  # total uncompressed size
+MAX_ARCHIVE_MEMBER_BYTES = 50 * 1024 * 1024
+MAX_COMPRESSION_RATIO = 200
 
 
 @dataclass(frozen=True)
@@ -26,7 +33,26 @@ class Page:
 
 
 class UnsupportedFileError(ValueError):
-    pass
+    """A file that won't be read: an unsupported type, over a size limit, or a suspicious
+    archive. The message is safe to show to users."""
+
+
+@dataclass(frozen=True)
+class DocumentText:
+    pages: list[Page]
+    unreadable: list[int] = field(default_factory=list)  # PDF pages with no text (scans)
+
+
+def _too_much_text(name: str, max_chars: int) -> UnsupportedFileError:
+    return UnsupportedFileError(
+        f"{name} has too much text to read here (the limit is {max_chars:,} characters). "
+        "Try splitting it into smaller files."
+    )
+
+
+def _check_length(name: str, pages: list[Page], max_chars: int | None) -> None:
+    if max_chars is not None and sum(len(p.text) for p in pages) > max_chars:
+        raise _too_much_text(name, max_chars)
 
 
 def clean_text(text: str) -> str:
@@ -87,10 +113,26 @@ def remove_boilerplate(raw_pages: list[str], min_share: float = 0.2) -> list[str
     ]
 
 
-def load_pdf(path: Path) -> list[Page]:
+def read_pdf(
+    path: Path, max_pages: int | None = None, max_chars: int | None = None
+) -> DocumentText:
+    """Read a PDF once: its pages, plus the pages with no extractable text."""
     from pypdf import PdfReader
 
-    raw = [pdf_page.extract_text() or "" for pdf_page in PdfReader(path).pages]
+    reader = PdfReader(path)
+    count = len(reader.pages)
+    if max_pages is not None and count > max_pages:
+        raise UnsupportedFileError(
+            f"{path.name} has {count} pages. Files can have up to {max_pages} pages, so try "
+            "splitting it."
+        )
+    raw: list[str] = []
+    length = 0
+    for pdf_page in reader.pages:
+        raw.append(pdf_page.extract_text() or "")
+        length += len(raw[-1])
+        if max_chars is not None and length > max_chars:  # stop early on a huge file
+            raise _too_much_text(path.name, max_chars)
     offset = detect_page_offset(raw)
     texts = remove_boilerplate(raw) if len(raw) >= BOILERPLATE_MIN_PAGES else raw
     pages = []
@@ -100,12 +142,40 @@ def load_pdf(path: Path) -> list[Page]:
         label = str(printed) if printed is not None and printed >= 1 else None
         if text:
             pages.append(Page(path.name, number, text, label))
-    return pages
+    unreadable = [number for number, text in enumerate(raw, start=1) if not text.strip()]
+    return DocumentText(pages, unreadable)
+
+
+def check_archive(path: Path) -> None:
+    """Refuse a zip archive (.pptx) that would expand to too much data, like a zip bomb.
+
+    The sizes come from the archive's own directory. They can't be used to slip more data
+    past these checks: Python's zipfile stops reading a member at its declared size.
+    """
+    with zipfile.ZipFile(path) as archive:
+        members = archive.infolist()
+    total = sum(m.file_size for m in members)
+    compressed = sum(m.compress_size for m in members)
+    too_big = (
+        len(members) > MAX_ARCHIVE_MEMBERS
+        or total > MAX_ARCHIVE_BYTES
+        or any(m.file_size > MAX_ARCHIVE_MEMBER_BYTES for m in members)
+        or total > MAX_COMPRESSION_RATIO * max(compressed, 1)
+        or any(
+            m.file_size > max(MAX_COMPRESSION_RATIO * m.compress_size, 1024 * 1024) for m in members
+        )
+    )
+    if too_big:
+        raise UnsupportedFileError(
+            f"{path.name} can't be read: its contents are much larger than a normal "
+            "PowerPoint file."
+        )
 
 
 def load_pptx(path: Path) -> list[Page]:
     from pptx import Presentation
 
+    check_archive(path)
     pages = []
     for number, slide in enumerate(Presentation(str(path)).slides, start=1):
         parts: list[str] = []
@@ -135,30 +205,29 @@ def load_text(path: Path) -> list[Page]:
     return pages
 
 
-def load_document(path: Path) -> list[Page]:
+def read_document(
+    path: Path, *, max_pages: int | None = None, max_chars: int | None = None
+) -> DocumentText:
+    """Read a document's pages. Pass limits when the file comes from someone else: a PDF with
+    more than `max_pages` pages, or any file with more than `max_chars` characters of text,
+    raises UnsupportedFileError instead."""
     suffix = path.suffix.lower()
     if suffix == ".pdf":
-        return load_pdf(path)
+        return read_pdf(path, max_pages, max_chars)
     if suffix == ".pptx":
-        return load_pptx(path)
-    if suffix in (".md", ".txt"):
-        return load_text(path)
-    raise UnsupportedFileError(
-        f"{path.name}: unsupported file type (supported: {', '.join(SUPPORTED_SUFFIXES)})"
-    )
+        pages = load_pptx(path)
+    elif suffix in (".md", ".txt"):
+        pages = load_text(path)
+    else:
+        raise UnsupportedFileError(
+            f"{path.name}: unsupported file type (supported: {', '.join(SUPPORTED_SUFFIXES)})"
+        )
+    _check_length(path.name, pages, max_chars)
+    return DocumentText(pages)
 
 
-def unreadable_pages(path: Path) -> list[int]:
-    """PDF pages with no extractable text, usually scanned images (empty for other types)."""
-    if path.suffix.lower() != ".pdf":
-        return []
-    from pypdf import PdfReader
-
-    return [
-        number
-        for number, page in enumerate(PdfReader(path).pages, start=1)
-        if not (page.extract_text() or "").strip()
-    ]
+def load_document(path: Path) -> list[Page]:
+    return read_document(path).pages
 
 
 def find_documents(paths: list[Path]) -> list[Path]:

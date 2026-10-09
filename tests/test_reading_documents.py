@@ -10,7 +10,7 @@ from conftest import TOY_PAGES, FakeEmbedder, FakeLLM, FakeReranker, make_pdf
 
 from backofthebook.answer import AnswerEngine
 from backofthebook.chunking import chunk_pages
-from backofthebook.documents import load_document, unreadable_pages
+from backofthebook.documents import load_document, read_document
 from backofthebook.index import CorpusIndex
 from backofthebook.retrieval import Retriever
 
@@ -64,5 +64,7 @@ def test_long_documents_still_include_their_first_page(tmp_path):
 
 def test_scanned_pages_are_reported(tmp_path):
     pdf = make_pdf(tmp_path / "scan.pdf", ["Readable first page text here.", ""])
-    assert unreadable_pages(pdf) == [2]
-    assert unreadable_pages(tmp_path / "notes.md") == []
+    assert read_document(pdf).unreadable == [2]
+    notes = tmp_path / "notes.md"
+    notes.write_text("# Notes\nSome text.")
+    assert read_document(notes).unreadable == []
