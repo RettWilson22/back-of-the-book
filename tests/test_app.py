@@ -714,3 +714,11 @@ def test_a_streaming_reply_is_redrawn_at_most_every_tenth_of_a_second(app, monke
     assert any("word299 [S1]." in m.value for m in at.markdown)  # the full answer is shown
     thoughts = [b for b in drawn if b.startswith('<div class="bb-thought">')]
     assert thoughts and "Let me think about trees." in thoughts[-1]
+
+
+def test_upload_area_and_about_page_say_where_document_text_goes(app):
+    at = app(FakeLLM())
+
+    note = "the text used to answer a question is sent to the AI provider (Groq)"
+    assert any(note in c.value for c in at.caption)
+    assert any("deleted after" in m.value and "(Groq)" in m.value for m in at.markdown)

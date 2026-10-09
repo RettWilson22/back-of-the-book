@@ -133,7 +133,7 @@ Invalid input is rejected **before** any API call. A test checks that every code
 
 **Live demo: https://backofthebook.streamlit.app**
 
-It's preloaded with the sample textbook. Ask a question (or click one of the examples), open **Course quiz** or **Quiz generator** and pick a topic, or add your own slides or notes at the top of **Ask**. Uploaded files stay in your session only, and the model provider can be changed under **About → Settings**.
+It's preloaded with the sample textbook. Ask a question (or click one of the examples), open **Course quiz** or **Quiz generator** and pick a topic, or add your own slides or notes at the top of **Ask**. Uploaded files stay in your session and are deleted after they're read, but the text used to answer a question is sent to the AI provider (Groq). You can switch to No AI under **About → Settings**.
 
 ## Getting started
 
