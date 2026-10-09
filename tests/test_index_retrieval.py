@@ -153,3 +153,27 @@ def test_reranker_scores_at_most_twenty_candidates():
 
     Retriever(index, FakeEmbedder(), CountingReranker()).search("mean median", k=5)
     assert scored == [20]
+
+
+class CountingEmbedder(FakeEmbedder):
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+
+    def encode(self, texts: list[str]) -> np.ndarray:
+        self.calls.append(list(texts))
+        return super().encode(texts)
+
+
+def test_a_question_is_embedded_once_for_the_scope_check_and_the_search(index: CorpusIndex):
+    from conftest import FakeLLM
+
+    from backofthebook.answer import AnswerEngine
+
+    embedder = CountingEmbedder()
+    retriever = Retriever(index, embedder, FakeReranker())
+    engine = AnswerEngine(retriever, FakeLLM("A [S1]."), min_similarity=0.0)
+
+    engine.ask("what is the median of sorted data")
+    engine.ask("what is k-means clustering")
+
+    assert embedder.calls == [["what is the median of sorted data"], ["what is k-means clustering"]]
