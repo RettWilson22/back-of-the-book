@@ -136,7 +136,8 @@ It's preloaded with the sample textbook. Ask a question (or click one of the exa
 
 ```bash
 git clone https://github.com/RettWilson22/back-of-the-book && cd back-of-the-book
-python3.12 -m venv .venv          # Python 3.11 or newer && source .venv/bin/activate
+python3.12 -m venv .venv    # Python 3.11 or newer
+source .venv/bin/activate
 pip install -e ".[groq,claude,app,dev]"
 ```
 
@@ -192,7 +193,7 @@ The fast tests cover every module (96% line coverage of `src/`), every error cod
 - **Sourcing and the source check reduce wrong answer keys but don't eliminate them.** A question can still be ambiguous, or the source itself can be wrong. Answer-key accuracy hasn't been measured yet; [`scripts/audit_quizzes.py`](scripts/audit_quizzes.py) generates quizzes on fixed topics (sourced vs. from memory) for grading by hand.
 - **Scanned PDFs need OCR**, which isn't included. Image-only pages are skipped.
 - **Printed page detection** looks for headers/footers like "12 • Chapter title". Documents without them fall back to PDF page numbers.
-- **Evaluation scope:** one textbook, AI-drafted questions reviewed by one person, single-page labels. See [`eval/README.md`](eval/README.md).
+- **Evaluation scope:** one textbook, LLM-drafted questions reviewed by one person, single-page labels. See [`eval/README.md`](eval/README.md).
 
 ## License
 
