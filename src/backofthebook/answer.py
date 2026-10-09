@@ -22,6 +22,7 @@ import time
 from collections.abc import Collection, Iterator
 from dataclasses import dataclass, field
 
+from backofthebook.errors import BackOfTheBookError, ErrorCode
 from backofthebook.llm import LLMProvider, Message, StreamEvent
 from backofthebook.retrieval import DEFAULT_MIN_SIMILARITY, Hit, Mode, Retriever
 
@@ -49,6 +50,8 @@ citations.
 knowledge, and don't use [S1]-style citations.
 - Never invent sources. Be concise, clear, and encouraging, like a great TA.
 - {EXCERPT_RULE}"""
+
+MAX_QUESTION_CHARS = 2000
 
 NOT_FOUND_MESSAGE = (
     "I couldn't find this in your course materials. Turn on an AI model in About > Settings "
@@ -237,6 +240,13 @@ class AnswerEngine:
         `history` holds earlier turns of the conversation; `sources` limits retrieval to the
         given documents (e.g. the ones the student clicked).
         """
+        if len(question) > MAX_QUESTION_CHARS:
+            raise BackOfTheBookError(
+                ErrorCode.QUESTION_TOO_LONG,
+                f"Questions can be up to {MAX_QUESTION_CHARS:,} characters long. Try a shorter "
+                "one.",
+                details={"length": len(question)},
+            )
         history = (history or [])[-self.max_history :]
         answer = Answer(question)
         query = retrieval_query(question, history)

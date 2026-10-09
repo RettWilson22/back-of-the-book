@@ -493,3 +493,12 @@ def test_claude_can_be_offered_on_a_private_deployment(app, monkeypatch):
 
     assert not at.exception
     assert llm.provider_requests[-1] == ("claude", {"allow_claude": True})
+
+
+def test_overlong_question_gets_a_hint_and_is_not_sent(app):
+    llm = FakeLLM("Answer.")
+    at = ask(app(llm), "a" * 2001)
+
+    assert not at.exception
+    assert any("2,000 characters" in i.value for i in at.info)
+    assert llm.prompts == [] and at.session_state["turns"] == []

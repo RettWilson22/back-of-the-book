@@ -21,6 +21,7 @@ class ErrorCode(StrEnum):
     TOPIC_TOO_LONG = "TOPIC_TOO_LONG"
     INVALID_QUESTION_COUNT = "INVALID_QUESTION_COUNT"
     INVALID_DIFFICULTY = "INVALID_DIFFICULTY"
+    QUESTION_TOO_LONG = "QUESTION_TOO_LONG"
     # No source can support the request.
     TOPIC_NOT_COVERED = "TOPIC_NOT_COVERED"
     SOURCE_NOT_FOUND = "SOURCE_NOT_FOUND"
@@ -54,6 +55,7 @@ CATALOG: dict[ErrorCode, ErrorInfo] = {
     ErrorCode.TOPIC_TOO_LONG: _INPUT,
     ErrorCode.INVALID_QUESTION_COUNT: _INPUT,
     ErrorCode.INVALID_DIFFICULTY: _INPUT,
+    ErrorCode.QUESTION_TOO_LONG: _INPUT,
     ErrorCode.TOPIC_NOT_COVERED: ErrorInfo("no source", retryable=False, exit_code=3),
     ErrorCode.SOURCE_NOT_FOUND: ErrorInfo("no source", retryable=False, exit_code=3),
     ErrorCode.SOURCE_UNAVAILABLE: ErrorInfo("source service", retryable=True, exit_code=5),

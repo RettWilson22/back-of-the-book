@@ -2,6 +2,7 @@ import pytest
 from conftest import FakeEmbedder, FakeLLM, FakeReranker
 
 from backofthebook.answer import (
+    MAX_QUESTION_CHARS,
     NOT_FOUND_MESSAGE,
     SYSTEM_PROMPT,
     AnswerEngine,
@@ -15,6 +16,7 @@ from backofthebook.answer import (
 )
 from backofthebook.chunking import chunk_pages
 from backofthebook.documents import Page
+from backofthebook.errors import BackOfTheBookError, ErrorCode
 from backofthebook.index import CorpusIndex
 from backofthebook.llm import ExtractiveProvider
 from backofthebook.quiz import (
@@ -262,3 +264,15 @@ def test_escape_markdown_shows_model_text_literally():
         "x\\<y and \\*bold\\* \\[a\\](b) \\!\\[i\\](u) \\$5 # heading"
     )
     assert escape_markdown("Nearest centroid") == "Nearest centroid"
+
+
+def test_overlong_question_is_refused_before_any_work(retriever: Retriever):
+    llm = FakeLLM("Answer.")
+    engine = AnswerEngine(retriever, llm, min_similarity=0.0)
+
+    with pytest.raises(BackOfTheBookError) as raised:
+        engine.ask("x" * (MAX_QUESTION_CHARS + 1))
+    assert raised.value.code is ErrorCode.QUESTION_TOO_LONG
+    assert llm.prompts == []
+    engine.ask("what is the median " + "x" * (MAX_QUESTION_CHARS - 19))
+    assert len(llm.prompts) == 1
