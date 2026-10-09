@@ -50,7 +50,14 @@ def reload_package_if_updated() -> None:
 
 reload_package_if_updated()
 
-from backofthebook.answer import Answer, AnswerEngine, Turn, escape_markdown, tidy_markdown
+from backofthebook.answer import (
+    MAX_QUESTION_CHARS,
+    Answer,
+    AnswerEngine,
+    Turn,
+    escape_markdown,
+    tidy_markdown,
+)
 from backofthebook.chunking import chunk_pages
 from backofthebook.documents import SUPPORTED_SUFFIXES, UnsupportedFileError, read_document
 from backofthebook.errors import BackOfTheBookError, ErrorCode
@@ -227,6 +234,7 @@ _INPUT_ERRORS = {
     ErrorCode.TOPIC_TOO_LONG,
     ErrorCode.INVALID_QUESTION_COUNT,
     ErrorCode.INVALID_DIFFICULTY,
+    ErrorCode.QUESTION_TOO_LONG,
     ErrorCode.TOPIC_NOT_COVERED,
     ErrorCode.SOURCE_NOT_FOUND,
 }
@@ -667,7 +675,11 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
 def stream_reply(question: str, sources: list[str] | None) -> dict[str, object] | None:
     """Stream one reply with a live "Thinking" status, then the answer and its sources."""
     history = [Turn(str(t["question"]), str(t["text"])) for t in st.session_state.turns]
-    answer, events = engine.stream(question, history, sources)
+    try:
+        answer, events = engine.stream(question, history, sources)
+    except BackOfTheBookError as e:
+        show_error(e)
+        return None
     status = None if llm.name == "extractive" else st.status("Thinking...", expanded=False)
     thought_box = status.empty() if status else None
     reply_box = st.empty()
@@ -733,7 +745,7 @@ with ask_tab:
                     st.button(example, key=f"example_{n}", on_click=ask_example, args=(example,))
 
     new_turn = st.container()  # keeps the newest exchange above the input box
-    typed = st.chat_input("Ask anything", max_chars=2000)
+    typed = st.chat_input("Ask anything", max_chars=MAX_QUESTION_CHARS)
     question = typed or st.session_state.pop("pending_question", None)
     if question:
         with new_turn:

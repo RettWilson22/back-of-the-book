@@ -63,6 +63,7 @@ Every failure is a `BackOfTheBookError` ([`errors.py`](src/backofthebook/errors.
 | `TOPIC_TOO_LONG` | Topic over 200 characters | no | 2 |
 | `INVALID_QUESTION_COUNT` | Not 1–10 questions | no | 2 |
 | `INVALID_DIFFICULTY` | Not easy / medium / hard | no | 2 |
+| `QUESTION_TOO_LONG` | Question over 2,000 characters | no | 2 |
 | `TOPIC_NOT_COVERED` | Course quiz topic isn't in the loaded materials | no | 3 |
 | `SOURCE_NOT_FOUND` | No Wikipedia article matches the Quiz generator topic | no | 3 |
 | `SOURCE_UNAVAILABLE` | Wikipedia couldn't be reached | yes | 5 |
