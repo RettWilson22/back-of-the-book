@@ -7,6 +7,7 @@ keeps its article title, section, and URL so the app can attribute and link it.
 
 from __future__ import annotations
 
+import http.client
 import json
 import re
 import urllib.error
@@ -22,7 +23,8 @@ from backofthebook.errors import BackOfTheBookError, ErrorCode
 
 API_URL = "https://en.wikipedia.org/w/api.php"
 USER_AGENT = "BackOfTheBook/0.1 (https://github.com/RettWilson22/back-of-the-book)"
-# Sections that list references or links rather than explain the topic.
+# Sections that list references or links rather than explain the topic. Their subsections
+# are left out too.
 SKIP_SECTIONS = {
     "notes",
     "references",
@@ -33,7 +35,16 @@ SKIP_SECTIONS = {
     "see also",
     "further reading",
     "footnotes",
+    "works cited",
+    "notes and references",
+    "references and notes",
+    "general references",
+    "general and cited references",
+    "cited sources",
+    "explanatory notes",
 }
+# How many passages to take from the introduction, at most, before the other sections.
+LEAD_PASSAGES = 3
 
 FetchJSON = Callable[[dict[str, str]], dict[str, Any]]
 
@@ -55,11 +66,18 @@ class Article:
     text: str  # plain text with "== Section ==" headings
 
     def sections(self) -> list[tuple[str, str]]:
-        """(section name, body) pairs; the introduction comes first with an empty name."""
+        """(section name, body) pairs that explain the topic; the introduction comes first with
+        an empty name. Reference and link sections are left out with all their subsections."""
         parts = re.split(r"^(==+) ?(.+?) ?\1\s*$", self.text, flags=re.M)
         sections = [("", parts[0])]
+        skipping: int | None = None  # heading level of the skipped section we're inside
         for i in range(1, len(parts) - 2, 3):
-            sections.append((parts[i + 1].strip(), parts[i + 2]))
+            level, name = len(parts[i]), parts[i + 1].strip()
+            if skipping is not None and level > skipping:
+                continue  # a subsection of a skipped section
+            skipping = level if name.lower() in SKIP_SECTIONS else None
+            if skipping is None:
+                sections.append((name, parts[i + 2]))
         return [(name, body.strip()) for name, body in sections if body.strip()]
 
 
@@ -70,7 +88,9 @@ def _fetch_json(params: dict[str, str]) -> dict[str, Any]:
         with urllib.request.urlopen(request, timeout=15) as response:
             data: dict[str, Any] = json.load(response)
             return data
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+    # OSError covers URLError, timeouts, and dropped connections; HTTPException covers a
+    # response cut short; ValueError covers a body that isn't JSON (or isn't UTF-8).
+    except (OSError, http.client.HTTPException, ValueError) as e:
         raise BackOfTheBookError(
             ErrorCode.SOURCE_UNAVAILABLE,
             "Couldn't reach Wikipedia to look up the topic; try again in a moment.",
@@ -132,22 +152,35 @@ class WikipediaSource:
 
 
 def article_passages(article: Article, limit: int = 10, max_words: int = 180) -> list[Passage]:
-    """Passages covering the whole article: the introduction first, then one per section in
-    turn, so a quiz isn't drawn only from the opening paragraphs."""
-    per_section: list[list[Passage]] = []
+    """Up to `limit` passages spread over the whole article, so a quiz isn't drawn only from
+    its opening sections.
+
+    A few passages come from the introduction. The rest are spread evenly over the other
+    sections, from first to last: one from each, then a second from each, and so on. If the
+    article has more sections than that, evenly spaced ones are used. A short article fills
+    the remaining places from the rest of its introduction.
+    """
+    lead: list[Passage] = []
+    sections: list[list[Passage]] = []
     for number, (name, body) in enumerate(article.sections(), start=1):
-        if name.lower() in SKIP_SECTIONS:
-            continue
         citation = f"Wikipedia: {article.title}" + (f" § {name}" if name else "")
         url = article.url + ("#" + urllib.parse.quote(name.replace(" ", "_")) if name else "")
         chunks = chunk_pages([Page(article.title, number, body)], max_words=max_words)
-        per_section.append([Passage(citation, c.text, url) for c in chunks])
+        passages = [Passage(citation, c.text, url) for c in chunks]
+        if not name:
+            lead = passages
+        elif passages:
+            sections.append(passages)
 
-    picked: list[Passage] = []
+    from_lead = max(1, min(LEAD_PASSAGES, limit // 3))
+    picked = lead[:from_lead]
+    room = limit - len(picked)
+    if len(sections) > room > 0:  # evenly spaced sections, centered in each stretch
+        sections = [sections[(2 * i + 1) * len(sections) // (2 * room)] for i in range(room)]
     depth = 0
-    while len(picked) < limit and any(depth < len(s) for s in per_section):
-        for section in per_section:
+    while len(picked) < limit and any(depth < len(s) for s in sections):
+        for section in sections:
             if depth < len(section) and len(picked) < limit:
                 picked.append(section[depth])
         depth += 1
-    return picked
+    return picked + lead[from_lead : from_lead + limit - len(picked)]

@@ -47,7 +47,7 @@ Type any topic (*Pokémon*, *the NFL*, *the French Revolution*), pick **Easy**, 
 | Medium | Understanding and application; plausible wrong choices |
 | Hard | Lesser-known details, multi-step reasoning, and edge cases; wrong choices based on common misconceptions |
 
-**Every quiz comes from a source.** An earlier version wrote quizzes from the model's memory, and live testing on niche topics (Super Mario Galaxy) produced wrong answer keys. A second pass that re-answered from memory couldn't catch them, because a model that's confidently wrong is wrong both times. So the Quiz generator now finds the topic's Wikipedia article (skipping "may refer to" pages), splits it into passages covering every section, and writes questions only from those passages. Each question must cite the passage that states its answer.
+**Every quiz comes from a source.** An earlier version wrote quizzes from the model's memory, and live testing on niche topics (Super Mario Galaxy) produced wrong answer keys. A second pass that re-answered from memory couldn't catch them, because a model that's confidently wrong is wrong both times. So the Quiz generator now finds the topic's Wikipedia article (skipping "may refer to" pages), takes passages from the introduction and from sections spread across the whole article (leaving out references and link lists), and writes questions only from those passages. Each question must cite the passage that states its answer.
 
 **Source check.** After the quiz is written, a separate pass sees each question, its choices, and its cited passages, but not the answer key, and picks the answer the passages support (or none). Questions where that doesn't match the key are left out, and the app says how many. The quiz asks for a couple of spare questions so you still get the number you asked for. The **Course quiz** works the same way, using passages from your materials instead.
 
@@ -113,7 +113,7 @@ Invalid input is rejected **before** any API call. A test checks that every code
 | [`llm.py`](src/backofthebook/llm.py) | Claude, Groq, and offline providers behind one small interface. |
 | [`answer.py`](src/backofthebook/answer.py) | Conversation memory, relevance check, prompt, streaming reasoning and answer, citation validation. |
 | [`quiz.py`](src/backofthebook/quiz.py) | Course quiz and Quiz generator, difficulty levels, validation, source check. |
-| [`wiki.py`](src/backofthebook/wiki.py) | Finds a topic's Wikipedia article (skipping disambiguation pages) and splits it into passages covering every section. |
+| [`wiki.py`](src/backofthebook/wiki.py) | Finds a topic's Wikipedia article (skipping disambiguation pages) and picks passages spread across the whole article, leaving out references and link lists. |
 | [`sample.py`](src/backofthebook/sample.py) | Downloads and indexes the sample textbook. |
 | [`errors.py`](src/backofthebook/errors.py) | Error codes, messages, retryability, and CLI exit codes. |
 | [`evaluation.py`](src/backofthebook/evaluation.py) | Recall@k, MRR, and off-topic metrics. |
