@@ -20,8 +20,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-claude = ["anthropic>=0.70"]
-groq = ["groq>=0.11"]
+# anthropic 0.120 added fallbacks="default"; groq 0.31 has include_reasoning,
+# reasoning_effort "medium", and max_completion_tokens.
+claude = ["anthropic>=0.120"]
+groq = ["groq>=0.31"]
 app = ["streamlit>=1.40"]
 dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6", "mypy>=1.10", "reportlab>=4.0"]
 
