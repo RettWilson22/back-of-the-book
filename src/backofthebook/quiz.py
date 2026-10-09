@@ -285,7 +285,7 @@ def generate_quiz(
         raise TopicNotCovered(topic)
     mode = Mode.HYBRID_RERANK if retriever.reranker is not None else Mode.HYBRID
     passages = [
-        Passage(hit.chunk.citation, hit.chunk.text)
+        Passage(hit.chunk.citation, hit.chunk.text, source=hit.chunk.source)
         for hit in retriever.search(topic, k=k, mode=mode)
     ]
     return _quiz_from_passages(llm, topic, level, n, passages, "your course materials", None, check)
