@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,29 @@ def test_clean_text_rejoins_hyphenated_words_and_collapses_whitespace():
 
 def test_clean_text_keeps_minus_signs_before_numbers():
     assert clean_text("x -1") == "x -1"
+
+
+def test_clean_text_collapses_unicode_spaces_around_line_breaks():
+    assert clean_text("a\u00a0\u2003 \n\u00a0\r\n  b\u00a0\u00a0c") == "a\nb c"
+
+
+def seconds(action) -> float:
+    start = time.perf_counter()
+    action()
+    return time.perf_counter() - start
+
+
+@pytest.mark.parametrize("space", ["\u00a0", " \u00a0", "\u2003\t"])
+def test_clean_text_is_fast_on_long_whitespace_runs(space: str):
+    """A crafted page made of one long whitespace run used to take quadratic time."""
+    text = "a" + space * (200_000 // len(space)) + "b"
+    assert seconds(lambda: clean_text(text)) < 0.5
+
+
+def test_running_head_detection_is_fast_on_long_lines():
+    lines = ["\u2022" + "x  " * 70_000, "\u2022 " * 100_000 + "x"]
+    raw = ["\n".join(lines)] * 3
+    assert seconds(lambda: (detect_page_offset(raw), remove_boilerplate(raw))) < 0.5
 
 
 def test_pdf_keeps_page_numbers(tmp_path: Path):
