@@ -10,7 +10,7 @@
 
 - **Answerable questions:** pages were picked mechanically: one or two per section of the book (the page after the section starts, plus the middle page of longer sections). For each page, a question was written that the page answers, paraphrased so it doesn't reuse the page's distinctive wording. `gold` is the PDF page number (1-indexed). The printed page number is the PDF page minus 10.
 - **Off-topic questions:** a mix of clearly unrelated questions (geography, cooking) and *near-domain* technical questions the book doesn't cover (Kubernetes, TCP, Dijkstra's algorithm), which are harder to detect.
-- **Authorship:** the questions were drafted by an AI assistant (Claude) from the extracted page text and reviewed by the author. They have not been validated by independent annotators.
+- **Authorship:** the questions were drafted with an LLM from the extracted page text, then reviewed and edited by hand. They have not been validated by independent annotators.
 
 ## Known limitations
 
