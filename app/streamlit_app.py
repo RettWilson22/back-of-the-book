@@ -92,6 +92,7 @@ USE_SAMPLE = os.environ.get("BACKOFTHEBOOK_SAMPLE", "1") != "0"
 # Claude costs far more per request than Groq's free tier, so a public deployment never offers
 # it unless the operator sets BACKOFTHEBOOK_ALLOW_CLAUDE=1.
 ALLOW_CLAUDE = os.environ.get("BACKOFTHEBOOK_ALLOW_CLAUDE") == "1"
+AI_PROVIDERS = "Groq or Claude" if ALLOW_CLAUDE else "Groq"
 # Model requests (each chat answer is one, each quiz two or more), per minute for the whole
 # server and per visitor session, so nobody can run up the API bill or use up the rate limit.
 LLM_CALLS_PER_MINUTE = int(os.environ.get("BACKOFTHEBOOK_LLM_CALLS_PER_MINUTE", "30"))
@@ -500,6 +501,10 @@ with ask_tab:
         help="PDF slides or notes, PowerPoint decks, Markdown, or text: up to "
         f"{MAX_DOCUMENTS} files and {MAX_PDF_PAGES} pages each. Your files are only "
         "visible to you and are gone when you close or refresh the page.",
+    )
+    st.caption(
+        "Your files stay in your session and are deleted after they're read, but the text used "
+        f"to answer a question is sent to the AI provider ({AI_PROVIDERS})."
     )
     if uploads:
         with st.spinner("Reading your files..."):
@@ -914,7 +919,7 @@ with anyquiz_tab:
 
 with about_body:
     st.markdown(
-        """
+        f"""
 ### How it works
 
 **Ask.** Chat with the AI like any assistant: it remembers the conversation, works through
@@ -951,6 +956,9 @@ knew in advance:
   and quiz question shows where it came from so you can.
 - If a quiz question looks wrong, use **Report a problem** under it.
 - Scanned PDFs (pictures of pages) can't be read.
+- Files you upload stay in your session and are deleted after they're read. To answer a
+  question, the question and the passages it uses are sent to the AI provider ({AI_PROVIDERS}),
+  unless you choose No AI in Settings.
 
 The full test results and method are in the
 [project README](https://github.com/RettWilson22/back-of-the-book#results).
