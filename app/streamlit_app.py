@@ -11,6 +11,7 @@ import logging
 import os
 import sys
 import tempfile
+import time
 import urllib.parse
 from collections.abc import Callable, Collection
 from dataclasses import dataclass
@@ -792,6 +793,9 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
 # --- Ask -----------------------------------------------------------------------------------
 
 
+REDRAW_SECONDS = 0.1  # how often a reply is redrawn while it streams in
+
+
 def stream_reply(question: str, sources: list[str] | None) -> dict[str, object] | None:
     """Stream one reply with a live "Thinking" status, then the answer and its sources."""
     history = [Turn(str(t["question"]), str(t["text"])) for t in st.session_state.turns]
@@ -803,15 +807,24 @@ def stream_reply(question: str, sources: list[str] | None) -> dict[str, object] 
         thought_box = status.empty() if status else None
         reply_box = st.empty()
         thinking, text = "", ""
+        drawn = 0.0  # when the reply was last redrawn
         for event in events:
-            if event.kind == "thinking" and thought_box is not None:
+            if event.kind == "thinking":
                 thinking += event.text
-                thought_box.markdown(thought_html(thinking), unsafe_allow_html=True)
             elif event.kind == "text":
                 if status is not None and not text:
                     status.update(label=thought_label(answer.thinking_seconds), state="complete")
                 text += event.text
-                reply_box.markdown(tidy_markdown(text) + " ▌")
+            # Redrawing re-renders all the Markdown so far, so it's done at most every 100 ms
+            # rather than for every few words.
+            if time.monotonic() - drawn >= REDRAW_SECONDS:
+                if thinking and thought_box is not None:
+                    thought_box.markdown(thought_html(thinking), unsafe_allow_html=True)
+                if text:
+                    reply_box.markdown(tidy_markdown(text) + " ▌")
+                drawn = time.monotonic()
+        if thinking and thought_box is not None:
+            thought_box.markdown(thought_html(thinking), unsafe_allow_html=True)
         if status is not None and not text:
             status.update(label=thought_label(answer.thinking_seconds), state="complete")
         reply_box.markdown(answer.text)

@@ -692,3 +692,25 @@ def test_a_session_with_uploads_builds_its_search_index_only_when_documents_chan
     next(b for b in at.button if b.key == "remove_syllabus.pdf").click().run()
     assert not at.exception
     assert app.built.bm25 == shared + 2  # back to the shared index, already built
+
+
+def test_a_streaming_reply_is_redrawn_at_most_every_tenth_of_a_second(app, monkeypatch):
+    from streamlit.elements.markdown import MarkdownMixin
+
+    drawn: list[str] = []
+    original = MarkdownMixin.markdown
+
+    def counting(self, body, *args, **kwargs):
+        drawn.append(str(body))
+        return original(self, body, *args, **kwargs)
+
+    reply = " ".join(f"word{n}" for n in range(300)) + " [S1]."
+    at = app(FakeLLM(reply, thinking="Let me think about trees."))
+    monkeypatch.setattr(MarkdownMixin, "markdown", counting)
+    ask(at, "how does a decision tree split data with questions")
+
+    assert not at.exception
+    assert sum(body.endswith(" ▌") for body in drawn) <= 3  # 300 words arrive at once
+    assert any("word299 [S1]." in m.value for m in at.markdown)  # the full answer is shown
+    thoughts = [b for b in drawn if b.startswith('<div class="bb-thought">')]
+    assert thoughts and "Let me think about trees." in thoughts[-1]
