@@ -258,12 +258,18 @@ class Document:
     notes: list[str]
 
 
+def upload_name(raw: str) -> str:
+    """The name an uploaded file is listed and cited under. A path in it is never trusted, and
+    it can't form a Markdown image, since labels that show it render Markdown."""
+    return Path(raw).name.replace("![", "! [")
+
+
 def process_upload(upload: UploadedFile, embedder: Embedder, room: int) -> Document | str:
     """Read and index one uploaded file. Returns the document, or an error message.
 
     `room` is how many more passages this session can hold.
     """
-    name = Path(upload.name).name  # never trust a path in an uploaded file's name
+    name = upload_name(upload.name)
     if upload.size > MAX_UPLOAD_MB * 1024 * 1024:
         return f"{name} is larger than {MAX_UPLOAD_MB} MB, so it can't be added."
     with tempfile.TemporaryDirectory() as tmp:  # deleted as soon as the file has been read
@@ -295,7 +301,7 @@ def add_uploads(uploads: list[UploadedFile], docs: dict[str, Document]) -> list[
     """Process new uploads into `docs` within the session limits. Returns error messages."""
     errors = []
     for upload in uploads:
-        name = Path(upload.name).name
+        name = upload_name(upload.name)
         if len(docs) >= MAX_DOCUMENTS and name not in docs:
             errors.append(
                 f"You can add up to {MAX_DOCUMENTS} documents, so {name} wasn't added. "
@@ -342,7 +348,14 @@ def remove_document(name: str) -> None:
 def render_sources(numbered_hits: list[tuple[int, Hit]]) -> None:
     for n, hit in numbered_hits:
         with st.expander(f"[S{n}] {hit.chunk.citation}"):
-            st.write(hit.chunk.text)
+            st.text(hit.chunk.text)  # document text is shown as written, never as Markdown
+
+
+def thought_html(thinking: str) -> str:
+    """The model's reasoning as one escaped HTML block. It has no line breaks, because a blank
+    line would end the HTML block and the rest would be rendered as Markdown."""
+    lines = html.escape(thinking).splitlines()
+    return f'<div class="bb-thought">{"<br>".join(lines)}</div>'
 
 
 def thought_label(seconds: float) -> str:
@@ -642,9 +655,7 @@ def stream_reply(question: str, sources: list[str] | None) -> dict[str, object] 
         for event in events:
             if event.kind == "thinking" and thought_box is not None:
                 thinking += event.text
-                thought_box.markdown(
-                    f'<div class="bb-thought">{html.escape(thinking)}</div>', unsafe_allow_html=True
-                )
+                thought_box.markdown(thought_html(thinking), unsafe_allow_html=True)
             elif event.kind == "text":
                 if status is not None and not text:
                     status.update(label=thought_label(answer.thinking_seconds), state="complete")
@@ -679,10 +690,7 @@ with ask_tab:
         with st.chat_message("assistant"):
             if turn["thinking"]:
                 with st.expander(thought_label(turn["seconds"])):
-                    st.markdown(
-                        f'<div class="bb-thought">{html.escape(str(turn["thinking"]))}</div>',
-                        unsafe_allow_html=True,
-                    )
+                    st.markdown(thought_html(str(turn["thinking"])), unsafe_allow_html=True)
             st.markdown(turn["text"])
             render_answer_footer(turn)
 
