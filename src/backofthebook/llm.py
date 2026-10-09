@@ -25,6 +25,12 @@ GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b"
 # Server-side fallback: if a request is declined by a safety classifier, the API re-runs it on
 # Anthropic's recommended model for that refusal category instead of returning the refusal.
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
+# Most tokens one request may write (reasoning included). Answers and quizzes need far less;
+# the caps bound what a single request can cost on a public deployment.
+CLAUDE_CHAT_MAX_TOKENS = 4096
+CLAUDE_QUIZ_MAX_TOKENS = 8192
+GROQ_CHAT_MAX_TOKENS = 2048
+GROQ_QUIZ_MAX_TOKENS = 4096
 
 
 class LLMError(BackOfTheBookError):
@@ -127,7 +133,7 @@ class ClaudeProvider:
         try:
             with self.client.beta.messages.stream(
                 model=self.model,
-                max_tokens=64000,
+                max_tokens=CLAUDE_CHAT_MAX_TOKENS,
                 system=system,
                 messages=messages,
                 # Opus 5.5 always thinks; "summarized" returns a readable summary to show users.
@@ -155,7 +161,7 @@ class ClaudeProvider:
         try:
             response = self.client.beta.messages.parse(
                 model=self.model,
-                max_tokens=16000,
+                max_tokens=CLAUDE_QUIZ_MAX_TOKENS,
                 system=system,
                 messages=[{"role": "user", "content": user}],
                 output_config={"effort": self.effort},
@@ -210,6 +216,7 @@ class GroqProvider:
                 model=self.model,
                 messages=[{"role": "system", "content": system}, *messages],
                 temperature=0.3,
+                max_completion_tokens=GROQ_CHAT_MAX_TOKENS,
                 stream=True,
                 **extra,
             )
@@ -239,6 +246,7 @@ class GroqProvider:
                     model=self.model,
                     messages=messages,
                     temperature=0.2,
+                    max_completion_tokens=GROQ_QUIZ_MAX_TOKENS,
                     response_format={"type": "json_object"},
                 )
             except groq.APIError as e:
@@ -280,13 +288,19 @@ class ExtractiveProvider:
         )
 
 
-def make_provider(name: str | None = None) -> LLMProvider:
-    """Pick a provider by name, or by whichever API key is set (Groq first, then Claude)."""
+def make_provider(name: str | None = None, *, allow_claude: bool = True) -> LLMProvider:
+    """Pick a provider by name, or by whichever API key is set (Groq first, then Claude).
+
+    With `allow_claude=False` Claude is never used, even if it is named or its key is the only
+    one set; the choice falls back to Groq or to no AI.
+    """
     name = (name or os.environ.get("BACKOFTHEBOOK_LLM") or "").lower()
+    if name == "claude" and not allow_claude:
+        name = ""
     if not name:
         if os.environ.get("GROQ_API_KEY"):
             name = "groq"
-        elif os.environ.get("ANTHROPIC_API_KEY"):
+        elif os.environ.get("ANTHROPIC_API_KEY") and allow_claude:
             name = "claude"
         else:
             name = "extractive"

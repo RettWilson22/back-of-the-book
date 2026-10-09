@@ -79,6 +79,9 @@ ROOT = Path(__file__).resolve().parents[1]
 INDEX_DIR = Path(os.environ.get("BACKOFTHEBOOK_INDEX") or default_index_dir(ROOT))
 # The repo ships a prebuilt sample index, so this only runs if it was deleted (0 to skip).
 USE_SAMPLE = os.environ.get("BACKOFTHEBOOK_SAMPLE", "1") != "0"
+# Claude costs far more per request than Groq's free tier, so a public deployment never offers
+# it unless the operator sets BACKOFTHEBOOK_ALLOW_CLAUDE=1.
+ALLOW_CLAUDE = os.environ.get("BACKOFTHEBOOK_ALLOW_CLAUDE") == "1"
 DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 # Limits on what one visitor can upload. The server also refuses files over maxUploadSize
 # (.streamlit/config.toml); the size is checked again here.
@@ -502,14 +505,14 @@ with ask_tab:
 provider_names = {
     "Automatic": None,
     "Groq": "groq",
-    "Claude": "claude",
+    **({"Claude": "claude"} if ALLOW_CLAUDE else {}),
     "No AI (show matching passages only)": "extractive",
 }
 with about_settings:
     st.markdown("### Settings")
     choice = st.selectbox("Answers and quizzes are written by", list(provider_names), index=0)
     try:
-        llm = make_provider(provider_names[choice])
+        llm = make_provider(provider_names[choice], allow_claude=ALLOW_CLAUDE)
     except Exception:
         logger.exception("couldn't start provider %s", choice)
         st.error(f"Couldn't start {choice}. Using matching passages only for now.")

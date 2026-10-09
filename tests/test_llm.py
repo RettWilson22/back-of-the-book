@@ -110,6 +110,7 @@ def test_claude_streams_thinking_then_text_with_effort_and_fallback():
     assert call["output_config"] == {"effort": "high"}
     assert call["betas"] == [FALLBACK_BETA]
     assert call["fallbacks"] == "default"
+    assert call["max_tokens"] == 4096
 
 
 def test_claude_stream_refusal_raises():
@@ -125,6 +126,7 @@ def test_claude_generate_uses_structured_output_schema():
 
     assert result == Answer(value=4)
     assert client.calls[0]["output_format"] is Answer
+    assert client.calls[0]["max_tokens"] == 8192
     assert client.calls[0]["fallbacks"] == "default"
 
 
@@ -215,6 +217,7 @@ def test_groq_streams_reasoning_and_text_and_skips_empty_deltas():
     call = client.calls[0]
     assert call["messages"] == [{"role": "system", "content": "sys"}, *CONVERSATION]
     assert call["include_reasoning"] is True
+    assert call["max_completion_tokens"] == 2048
 
 
 def test_groq_only_requests_reasoning_from_models_that_support_it():
@@ -231,6 +234,7 @@ def test_groq_generate_parses_fenced_json():
     client = FakeGroqClient(replies=['```json\n{"value": 3}\n```'])
     assert GroqProvider(client=client).generate("sys", "q", Answer) == Answer(value=3)
     assert client.calls[0]["response_format"] == {"type": "json_object"}
+    assert client.calls[0]["max_completion_tokens"] == 4096
 
 
 def test_groq_generate_repairs_invalid_json_once():
@@ -284,6 +288,25 @@ def test_make_provider_picks_by_available_key(monkeypatch: pytest.MonkeyPatch, e
     for key, value in env.items():
         monkeypatch.setenv(key, value)
     assert make_provider().name == expected
+
+
+@pytest.mark.parametrize(
+    ("env", "name", "expected"),
+    [
+        ({"ANTHROPIC_API_KEY": "a"}, None, "extractive"),
+        ({"GROQ_API_KEY": "g", "ANTHROPIC_API_KEY": "a"}, None, "groq"),
+        ({"GROQ_API_KEY": "g", "ANTHROPIC_API_KEY": "a"}, "claude", "groq"),
+        ({"ANTHROPIC_API_KEY": "a", "BACKOFTHEBOOK_LLM": "claude"}, None, "extractive"),
+    ],
+)
+def test_make_provider_never_uses_claude_unless_allowed(
+    monkeypatch: pytest.MonkeyPatch, env, name, expected
+):
+    for var in ("GROQ_API_KEY", "ANTHROPIC_API_KEY", "BACKOFTHEBOOK_LLM"):
+        monkeypatch.delenv(var, raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    assert make_provider(name, allow_claude=False).name == expected
 
 
 def test_make_provider_rejects_unknown_names():

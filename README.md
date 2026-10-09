@@ -169,6 +169,7 @@ Use your own materials with `backofthebook ingest path/to/slides/`, or upload fi
 | `BACKOFTHEBOOK_GROQ_MODEL` | `openai/gpt-oss-120b` |
 | `BACKOFTHEBOOK_CLAUDE_MODEL` / `BACKOFTHEBOOK_CLAUDE_EFFORT` | `claude-opus-5-5` / `medium` |
 | `BACKOFTHEBOOK_INDEX` (web app) | your `.backofthebook/index` if you've run `ingest`, else the bundled `data/index` |
+| `BACKOFTHEBOOK_ALLOW_CLAUDE` (web app) | off: the web app never uses Claude. Set it to `1` to offer Claude, but only on a private deployment, since every visitor's requests go on your bill |
 
 ### Deploy your own (Streamlit Community Cloud, free)
 
