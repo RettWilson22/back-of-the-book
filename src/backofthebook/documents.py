@@ -36,13 +36,23 @@ def clean_text(text: str) -> str:
     text = re.sub(
         r"(\w) -([a-z])", r"\1-\2", text
     )  # pypdf splits "peer-reviewed" as "peer -reviewed"
-    text = re.sub(r"[ \t\r\f\v]+", " ", text)
-    text = re.sub(r"\s*\n\s*", "\n", text)
+    # Two linear passes. A single r"\s*\n\s*" backtracks over every long run of spaces that
+    # has no line break in it (such as non-breaking spaces), which is quadratic.
+    text = re.sub(r"[^\S\n]+", " ", text)  # any run of spaces, tabs, NBSPs... -> one space
+    text = re.sub(r" ?\n\s*", "\n", text)
     return text.strip()
 
 
 # Running heads such as "10     1 • Chapter title" (even pages) or "1.1 • Section     11" (odd).
 _RUNNING_HEAD = re.compile(r"^(\d{1,4})\s{2,}\S.*\u2022|\u2022.*\S\s{2,}(\d{1,4})$")
+# Running heads are short. Longer lines are never matched: the pattern is quadratic on a long
+# line with many bullets.
+_RUNNING_HEAD_MAX_CHARS = 200
+
+
+def _running_head(line: str) -> re.Match[str] | None:
+    line = line.strip()
+    return _RUNNING_HEAD.search(line) if len(line) <= _RUNNING_HEAD_MAX_CHARS else None
 
 
 def detect_page_offset(raw_pages: list[str], min_share: float = 0.3) -> int | None:
@@ -50,7 +60,7 @@ def detect_page_offset(raw_pages: list[str], min_share: float = 0.3) -> int | No
     votes: Counter[int] = Counter()
     for pdf_page, text in enumerate(raw_pages, start=1):
         for line in text.splitlines():
-            match = _RUNNING_HEAD.search(line.strip())
+            match = _running_head(line)
             if match:
                 votes[pdf_page - int(match.group(1) or match.group(2))] += 1
                 break
@@ -71,7 +81,7 @@ def remove_boilerplate(raw_pages: list[str], min_share: float = 0.2) -> list[str
         "\n".join(
             line
             for line in text.splitlines()
-            if line.strip() not in repeated and not _RUNNING_HEAD.search(line.strip())
+            if line.strip() not in repeated and not _running_head(line)
         )
         for text in raw_pages
     ]
