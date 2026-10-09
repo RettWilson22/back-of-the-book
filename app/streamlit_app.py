@@ -12,7 +12,7 @@ import os
 import sys
 import tempfile
 import urllib.parse
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -81,6 +81,7 @@ from backofthebook.quiz import (
 from backofthebook.retrieval import CrossEncoderReranker, Hit, Retriever
 from backofthebook.sample import FILENAME as SAMPLE_FILE
 from backofthebook.sample import build_sample_index
+from backofthebook.wiki import Passage
 
 ROOT = Path(__file__).resolve().parents[1]
 INDEX_DIR = Path(os.environ.get("BACKOFTHEBOOK_INDEX") or default_index_dir(ROOT))
@@ -465,6 +466,8 @@ if USE_SAMPLE and not (INDEX_DIR / "meta.json").exists():
         if not build_sample(INDEX_DIR):
             st.warning("Couldn't set up the sample textbook. You can still upload files.")
 base_index = load_base_index()
+# Built-in materials can be named in public problem reports; visitors' uploads can't.
+public_sources = base_index.sources if base_index else []
 embedder, reranker = load_models(base_index.embedding_model if base_index else DEFAULT_MODEL)
 
 st.session_state.setdefault("docs", {})
@@ -613,20 +616,42 @@ def guarded(action: Callable[[], Quiz], slot: DeltaGenerator) -> Quiz | None:
 
 
 REPORT_URL = "https://github.com/RettWilson22/back-of-the-book/issues/new"
+REPORT_FIELD_CHARS = 300
+REPORT_BODY_CHARS = 4000
 
 
-def report_link(quiz: Quiz, question: QuizQuestion) -> str:
-    """A pre-filled GitHub issue for reporting a wrong or unclear question."""
-    choices = "\n".join(f"- {c}" for c in question.choices)
-    sources = "\n".join(f"- {p.citation} {p.url or ''}" for p in quiz.sources_for(question))
-    body = (
-        f"**Topic:** {quiz.topic} ({quiz.difficulty.value})\n\n"
-        f"**Question:** {question.question}\n\n**Choices:**\n{choices}\n\n"
-        f"**Answer key:** {question.choices[question.answer_index]}\n\n"
-        f"**Sources:**\n{sources}\n\n**What's wrong:** "
+def clip(text: str, limit: int = REPORT_FIELD_CHARS) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def report_link(quiz: Quiz, question: QuizQuestion, public_sources: Collection[str]) -> str:
+    """A pre-filled GitHub issue for reporting a wrong or unclear question.
+
+    The issue is public, so a passage from a visitor's own upload is called "an uploaded
+    document" rather than named. Each field and the whole body are kept short.
+    """
+
+    def where(passage: Passage) -> str:
+        if passage.url:
+            return clip(f"{passage.citation} {passage.url}")
+        if passage.source in public_sources:
+            return clip(passage.citation)
+        return "an uploaded document"
+
+    choices = "\n".join(f"- {clip(c)}" for c in question.choices)
+    sources = "\n".join(f"- {s}" for s in dict.fromkeys(map(where, quiz.sources_for(question))))
+    details = (
+        "This issue will be public.\n\n"
+        f"**Topic:** {clip(quiz.topic)} ({quiz.difficulty.value})\n\n"
+        f"**Question:** {clip(question.question)}\n\n**Choices:**\n{choices}\n\n"
+        f"**Answer key:** {clip(question.choices[question.answer_index])}\n\n"
+        f"**Sources:**\n{sources}\n\n"
     )
+    ending = "**What's wrong:** "
+    body = details[: REPORT_BODY_CHARS - len(ending)] + ending
     query = urllib.parse.urlencode(
-        {"title": f"Quiz problem: {question.question[:80]}", "body": body}
+        {"title": f"Quiz problem: {clip(question.question, 80)}", "body": body}
     )
     return f"{REPORT_URL}?{query}"
 
@@ -712,7 +737,8 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
                     + escape_markdown(q.explanation)
                 )
             st.caption(
-                f"Source: {source_links(quiz, q)} · [Report a problem]({report_link(quiz, q)})"
+                f"Source: {source_links(quiz, q)} · "
+                f"[Report a problem]({report_link(quiz, q, public_sources)})"
             )
     removed = []
     if quiz.dropped:

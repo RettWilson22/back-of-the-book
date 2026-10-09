@@ -584,3 +584,44 @@ def test_failure_while_indexing_an_upload_becomes_a_message(app, monkeypatch):
     assert not at.exception
     assert at.session_state["docs"] == {}
     assert any("Couldn't read notes1.md" in e.value for e in at.error)
+
+
+def report_body(at: AppTest) -> str:
+    import re
+    import urllib.parse
+
+    caption = next(c.value for c in at.caption if "Report a problem" in c.value)
+    url = re.search(r"\[Report a problem\]\((\S+)\)", caption).group(1)
+    return urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["body"][0]
+
+
+def test_problem_report_keeps_uploaded_file_names_private_and_is_bounded(app):
+    long_question = "What is in the office hours syllabus " + "really " * 200 + "?"
+    question = kmeans_question(question=long_question, explanation="Tuesdays.")
+    at = app(quiz_llm([question]))
+    at.session_state["docs"] = {
+        "rivera-private-notes.pdf": uploaded(
+            "rivera-private-notes.pdf", "Office hours for the syllabus are with Rivera on Tuesdays."
+        )
+    }
+    at.run()
+    at.text_input[0].set_value("Rivera office hours syllabus")
+    next(b for b in at.button if b.label == "Generate quiz").click().run()  # course quiz
+    next(b for b in at.button if b.label == "Check answers").click().run()
+
+    body = report_body(at)
+    assert not at.exception
+    assert body.startswith("This issue will be public.")
+    assert "rivera-private-notes" not in body
+    assert "an uploaded document" in body
+    assert len(body) <= 4000
+    assert all(len(line) <= 320 for line in body.splitlines())
+
+
+def test_problem_report_names_public_sources(app):
+    at = app(quiz_llm([kmeans_question()]))
+    at.text_input[0].set_value("k-means clustering")
+    quiz_buttons(at)[0].click().run()
+    next(b for b in at.button if b.label == "Check answers").click().run()
+
+    assert "ml.pptx, p. 2" in report_body(at)

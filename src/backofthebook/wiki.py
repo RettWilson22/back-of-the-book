@@ -45,6 +45,7 @@ class Passage:
     citation: str  # e.g. "Wikipedia: Super Mario Galaxy § Gameplay"
     text: str
     url: str | None = None
+    source: str | None = None  # the file it came from, for passages from course materials
 
 
 @dataclass(frozen=True)
