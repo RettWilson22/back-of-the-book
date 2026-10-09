@@ -20,6 +20,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
+from backofthebook.answer import EXCERPT_RULE, excerpt
 from backofthebook.errors import BackOfTheBookError, ErrorCode
 from backofthebook.llm import LLMProvider
 from backofthebook.retrieval import DEFAULT_MIN_SIMILARITY, Mode, Retriever
@@ -55,8 +56,8 @@ DIFFICULTY_GUIDE = {
     ),
 }
 
-WRITE_SYSTEM_PROMPT = """You write multiple-choice quiz questions using ONLY the source \
-excerpts provided. Do not use outside knowledge.
+WRITE_SYSTEM_PROMPT = f"""You write multiple-choice quiz questions using ONLY the source \
+excerpts provided. Do not use outside knowledge. {EXCERPT_RULE}
 
 Each question must:
 - be answerable from the excerpts alone, with the correct answer clearly stated in them;
@@ -65,17 +66,17 @@ Each question must:
 - have exactly 4 answer choices with exactly one correct answer;
 - give `answer_index` as the 0-based position of the correct choice;
 - include a one or two sentence explanation of why the correct choice is right;
-- list the label(s) of the excerpt(s) that state the answer in `sources`, e.g. ["S2"];
+- list the id(s) of the excerpt(s) that state the answer in `sources`, e.g. ["S2"];
 - read like a normal quiz: never mention "the excerpts", "the passage", "the text", \
 "the source", or the [S1] labels in the question, the choices, or the explanation.
 
 If the excerpts don't support enough good questions, write fewer. If the topic is harmful or \
 not something a quiz should be written about, return an empty `questions` list."""
 
-CHECK_SYSTEM_PROMPT = """You check quiz questions against their sources. For each question, \
+CHECK_SYSTEM_PROMPT = f"""You check quiz questions against their sources. For each question, \
 read ONLY the excerpts shown with it and give the 0-based index of the choice those excerpts \
 clearly support. If the excerpts don't clearly support exactly one choice, answer -1. Answer \
-every question, in order."""
+every question, in order. {EXCERPT_RULE}"""
 
 
 class QuizQuestion(BaseModel):
@@ -183,7 +184,7 @@ def _keep_valid(questions: list[QuizQuestion], num_sources: int) -> list[QuizQue
 
 def build_write_prompt(topic: str, passages: list[Passage], n: int, difficulty: Difficulty) -> str:
     excerpts = "\n\n".join(
-        f"[S{i}] ({p.citation})\n{p.text}" for i, p in enumerate(passages, start=1)
+        excerpt(f"S{i}", p.citation, p.text) for i, p in enumerate(passages, start=1)
     )
     return (
         f"Source excerpts:\n\n{excerpts}\n\n"
@@ -197,7 +198,10 @@ def build_check_prompt(questions: list[QuizQuestion], passages: list[Passage]) -
     blocks = []
     for i, q in enumerate(questions, start=1):
         choices = "\n".join(f"  {j}. {choice}" for j, choice in enumerate(q.choices))
-        excerpts = "\n".join(f"  > {passages[n - 1].text}" for n in _source_numbers(q))
+        excerpts = "\n".join(
+            excerpt(f"S{n}", passages[n - 1].citation, passages[n - 1].text)
+            for n in _source_numbers(q)
+        )
         blocks.append(f"Question {i}: {q.question}\n{choices}\nExcerpts:\n{excerpts}")
     return "\n\n".join(blocks)
 
