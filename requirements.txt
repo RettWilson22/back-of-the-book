@@ -1,3 +1,4 @@
 # Used by Streamlit Community Cloud. CPU-only PyTorch keeps the install small (no GPU there).
+# Version floors live in pyproject.toml; editing this file makes Cloud reinstall packages.
 --extra-index-url https://download.pytorch.org/whl/cpu
 -e .[groq,claude,app]
