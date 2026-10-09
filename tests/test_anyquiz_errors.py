@@ -236,10 +236,33 @@ def test_quiz_is_trimmed_to_the_requested_size(wikipedia):
     )
 
 
-def test_check_is_skipped_if_the_answer_sheet_does_not_line_up(wikipedia):
-    quiz = generate_anyquiz(
-        llm_for([q("One?"), q("Two?")], answers=[0]), "galaxy", 2, "easy", source=wikipedia
-    )
+class SheetsInTurn(FakeLLM):
+    """Returns the draft, then each answer sheet in turn for successive source checks."""
+
+    def __init__(self, questions: list[QuizQuestion], sheets: list[list[int]]) -> None:
+        super().__init__()
+        self.draft = QuizDraft(questions=questions)
+        self.sheets = [AnswerSheet(answers=a) for a in sheets]
+
+    def generate(self, system, user, schema):
+        self.prompts.append((system, user))
+        return self.draft if schema is QuizDraft else self.sheets.pop(0)
+
+
+def test_check_is_retried_once_if_the_answer_sheet_does_not_line_up(wikipedia):
+    llm = SheetsInTurn([q("One?"), q("Two?", answer=1)], sheets=[[0], [0, 3]])
+    quiz = generate_anyquiz(llm, "galaxy", 2, "easy", source=wikipedia)
+
+    assert len(llm.prompts) == 3
+    assert quiz.checked
+    assert [x.question for x in quiz.questions] == ["One?"]
+
+
+def test_check_is_skipped_if_the_answer_sheet_never_lines_up(wikipedia):
+    llm = SheetsInTurn([q("One?"), q("Two?")], sheets=[[0], [0, 0, 0]])
+    quiz = generate_anyquiz(llm, "galaxy", 2, "easy", source=wikipedia)
+
+    assert len(llm.prompts) == 3
     assert len(quiz.questions) == 2
     assert not quiz.checked
 
