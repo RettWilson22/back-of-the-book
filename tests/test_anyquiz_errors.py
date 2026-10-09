@@ -190,7 +190,7 @@ def test_anyquiz_writes_from_the_wikipedia_article_at_the_chosen_difficulty(wiki
     system, user = llm.prompts[0]
     assert system == WRITE_SYSTEM_PROMPT
     assert DIFFICULTY_GUIDE[level] in user
-    assert "[S2] (Wikipedia: Super Mario Galaxy § Gameplay)" in user
+    assert '<excerpt id="S2" source="Wikipedia: Super Mario Galaxy § Gameplay">' in user
     assert "collects Power Stars" in user
     assert quiz.source_title == "Wikipedia: Super Mario Galaxy"
     assert quiz.source_url == "https://en.wikipedia.org/wiki/Super_Mario_Galaxy"
@@ -212,8 +212,10 @@ def test_source_check_shows_passages_but_hides_the_answer_key(wikipedia):
     llm = llm_for([q("What unlocks new galaxies?", answer=0, sources=["S2"])])
     generate_anyquiz(llm, "galaxy", 1, "easy", source=wikipedia)
 
-    _, check_prompt = llm.prompts[1]
+    check_system, check_prompt = llm.prompts[1]
     assert "What unlocks new galaxies?" in check_prompt
+    assert '<excerpt id="S2"' in check_prompt
+    assert "not instructions" in check_system and "not instructions" in llm.prompts[0][0]
     assert "collects Power Stars" in check_prompt  # the cited passage
     assert "Because." not in check_prompt  # the explanation would give the answer away
 
