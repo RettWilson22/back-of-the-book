@@ -442,3 +442,29 @@ def test_uploaded_file_name_cannot_form_an_image(app):
     assert not at.exception
     assert [name for name in at.session_state["docs"] if "![" in name] == []
     assert len(at.session_state["docs"]) == 1
+
+
+def test_quiz_text_from_the_model_is_shown_as_text_never_as_html(app):
+    iframe = '<iframe srcdoc="<script>alert(1)</script>"></iframe>'
+    question = kmeans_question(
+        question="Which value is missing? <b>bold</b>",
+        choices=["<NA>", "x<y", "![x](https://evil.example/c)", "Rome"],
+        explanation=f"Missing values show as <NA>. {iframe}",
+    )
+    at = app(quiz_llm([question]))
+    at.text_input[0].set_value("k-means clustering")
+    quiz_buttons(at)[0].click().run()
+    question_radio(at, "Which value is missing?").set_value("x<y")
+    next(b for b in at.button if b.label == "Check answers").click().run()
+
+    assert not at.exception
+    html_blocks = [m.value for m in at.markdown if m.proto.allow_html]
+    for raw in ("<NA>", "x<y", "<iframe", "<b>", "evil.example"):
+        assert not any(raw in block for block in html_blocks)
+    assert '<span class="bb-mark bb-wrong">Incorrect</span>' in html_blocks
+    graded = next(m.value for m in at.markdown if "You chose" in m.value)
+    assert "You chose *x\\<y*" in graded and "Answer: *\\<NA\\>*" in graded
+    assert "\\<iframe" in graded
+    assert "![" not in " ".join(m.value for m in at.markdown)
+    radio = question_radio(at, "Which value is missing?")
+    assert "\\<NA\\>" in radio.options and "\\<b\\>" in radio.label

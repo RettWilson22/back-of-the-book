@@ -50,7 +50,7 @@ def reload_package_if_updated() -> None:
 
 reload_package_if_updated()
 
-from backofthebook.answer import Answer, AnswerEngine, Turn, tidy_markdown
+from backofthebook.answer import Answer, AnswerEngine, Turn, escape_markdown, tidy_markdown
 from backofthebook.chunking import chunk_pages
 from backofthebook.documents import SUPPORTED_SUFFIXES, UnsupportedFileError, read_document
 from backofthebook.errors import BackOfTheBookError, ErrorCode
@@ -143,6 +143,10 @@ header[data-testid="stHeader"], footer, [data-testid="stToolbar"] { display: non
 .bb-right { color: #2e6b30; background: #e6f2e4; border-color: #9cc49a; }
 .bb-wrong { color: #8c2a24; background: #f7e4e1; border-color: #d9a29b; }
 .bb-skip { color: #5c5a52; background: #ecebe4; border-color: #c4c1b5; }
+/* A graded answer: its mark and its explanation are separate elements on one line. */
+[class*="st-key-bb_result_"] { flex-direction: row; align-items: baseline; gap: 0; }
+[class*="st-key-bb_result_"] > div:first-child { flex: none; width: auto; }
+[class*="st-key-bb_result_"] > div:last-child { flex: 1 1 0; min-width: 0; }
 
 /* Chat that reads like a modern assistant: your messages in bubbles on the right,
    replies as plain text on the left. */
@@ -569,6 +573,14 @@ def source_links(quiz: Quiz, question: QuizQuestion) -> str:
     return ", ".join(dict.fromkeys(links))  # de-duplicate, keep order
 
 
+# Constant HTML for the grade marks. Model-written text is never put into HTML.
+MARKS = {
+    "right": '<span class="bb-mark bb-right">Correct</span>',
+    "skip": '<span class="bb-mark bb-skip">Skipped</span>',
+    "wrong": '<span class="bb-mark bb-wrong">Incorrect</span>',
+}
+
+
 def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficulty], Quiz]) -> None:
     """Form, quiz, and grading. `key` keeps each tab's quiz state separate."""
     with st.form(f"{key}_form"):
@@ -605,7 +617,11 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
         with st.container(border=True):
             picks.append(
                 st.radio(
-                    f"**{i}. {q.question}**", q.choices, index=None, key=f"{key}_{quiz_id}_q{i}"
+                    f"**{i}. {escape_markdown(q.question)}**",
+                    q.choices,
+                    index=None,
+                    format_func=escape_markdown,
+                    key=f"{key}_{quiz_id}_q{i}",
                 )
             )
     if st.button("Check answers", key=f"{key}_check", type="primary"):
@@ -618,16 +634,18 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
             correct = q.choices[q.answer_index]
             chose = ""
             if pick == correct:
-                mark = '<span class="bb-mark bb-right">Correct</span>'
+                mark = MARKS["right"]
             elif pick is None:
-                mark = '<span class="bb-mark bb-skip">Skipped</span>'
+                mark = MARKS["skip"]
             else:
-                mark = '<span class="bb-mark bb-wrong">Incorrect</span>'
-                chose = f" You chose *{pick}*."
-            st.markdown(
-                f"{mark} **{i}.**{chose} Answer: *{correct}*. {q.explanation}",
-                unsafe_allow_html=True,
-            )
+                mark = MARKS["wrong"]
+                chose = f" You chose *{escape_markdown(pick)}*."
+            with st.container(key=f"bb_result_{key}_{i}"):
+                st.markdown(mark, unsafe_allow_html=True)
+                st.markdown(
+                    f"**{i}.**{chose} Answer: *{escape_markdown(correct)}*. "
+                    + escape_markdown(q.explanation)
+                )
             st.caption(
                 f"Source: {source_links(quiz, q)} · [Report a problem]({report_link(quiz, q)})"
             )
