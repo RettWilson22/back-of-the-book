@@ -280,7 +280,7 @@ def test_tidy_markdown_turns_images_into_plain_text(image: str):
 
 def test_escape_markdown_shows_model_text_literally():
     assert escape_markdown("x<y and *bold* [a](b) ![i](u) $5\n# heading") == (
-        "x\\<y and \\*bold\\* \\[a\\](b) \\!\\[i\\](u) \\$5 # heading"
+        "x\\<y and \\*bold\\* \\[a\\](b) \\!\\[i\\](u) \\$5 \\# heading"
     )
     assert escape_markdown("Nearest centroid") == "Nearest centroid"
 
@@ -347,3 +347,14 @@ def test_quizzes_come_with_shuffled_choices(retriever: Retriever):
 
     assert all(q.choices[q.answer_index] == "Middle value" for q in quiz.questions)
     assert {q.answer_index for q in quiz.questions} != {0}
+
+
+def test_no_ai_mode_quotes_document_text_literally():
+    pages = [Page("notes.md", 1, "# Residuals [click here](https://evil.example) are *errors* <b>")]
+    index = CorpusIndex.build(chunk_pages(pages), FakeEmbedder())
+    engine = AnswerEngine(Retriever(index, FakeEmbedder(), FakeReranker()), ExtractiveProvider())
+
+    answer = engine.ask("what are residuals errors", sources=["notes.md"])
+
+    assert "- \\# Residuals \\[click here\\](https://evil.example)" in answer.text
+    assert "\\*errors\\* \\<b\\>" in answer.text
