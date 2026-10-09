@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from backofthebook.errors import BackOfTheBookError
+from backofthebook.errors import BackOfTheBookError, ErrorCode
 from backofthebook.index import USER_INDEX, default_index_dir
 
 if TYPE_CHECKING:
@@ -27,12 +27,34 @@ def _retriever(index_dir: Path, rerank: bool = True) -> Retriever:
     )
 
 
+def check_unique_names(files: list[Path]) -> list[Path]:
+    """Drop repeats of the same file, and refuse two different files with the same name.
+
+    Citations and passage ids use the file name only, so two "notes.pdf" files from different
+    folders would be mixed up in search results and citations.
+    """
+    unique = list({path.resolve(): path for path in files}.values())
+    by_name: dict[str, list[Path]] = {}
+    for path in unique:
+        by_name.setdefault(path.name, []).append(path)
+    clashes = {name: paths for name, paths in by_name.items() if len(paths) > 1}
+    if clashes:
+        name, paths = next(iter(clashes.items()))
+        raise BackOfTheBookError(
+            ErrorCode.DUPLICATE_FILE_NAMES,
+            f"More than one file is named {name} ({', '.join(map(str, paths))}). Citations "
+            "show only the file name, so rename one of them and run ingest again.",
+            details={"names": sorted(clashes)},
+        )
+    return unique
+
+
 def cmd_ingest(args: argparse.Namespace) -> int:
     from backofthebook.chunking import chunk_pages
     from backofthebook.documents import find_documents, load_document
     from backofthebook.index import CorpusIndex, SentenceTransformerEmbedder
 
-    files = find_documents([Path(p) for p in args.paths])
+    files = check_unique_names(find_documents([Path(p) for p in args.paths]))
     if not files:
         print("No supported documents found (.pdf, .pptx, .md, .txt).", file=sys.stderr)
         return 1
