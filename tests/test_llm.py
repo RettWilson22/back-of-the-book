@@ -259,17 +259,11 @@ def test_groq_errors_become_readable_messages():
 # --- Extractive and selection -------------------------------------------------------------
 
 
-def test_extractive_provider_quotes_sources_with_labels():
-    prompt = (
-        "Course-material excerpts:\n\n[S1] (a.pdf, p. 2)\nThe median is the middle.\n\n"
-        "Student question: q"
-    )
-    events = ExtractiveProvider().chat_stream("sys", [{"role": "user", "content": prompt}])
-    text = "".join(e.text for e in events)
-    assert "The median is the middle. [S1]" in text
-
-
-def test_extractive_provider_cannot_make_quizzes():
+def test_extractive_provider_cannot_chat_or_make_quizzes():
+    """The answer engine quotes passages itself in no-AI mode; the provider never writes."""
+    with pytest.raises(LLMError, match="needs an LLM") as raised:
+        ExtractiveProvider().chat_stream("sys", [{"role": "user", "content": "q"}])
+    assert raised.value.code is ErrorCode.NO_LLM_CONFIGURED
     with pytest.raises(LLMError, match="needs an LLM") as raised:
         ExtractiveProvider().generate("sys", "q", Answer)
     assert raised.value.code is ErrorCode.NO_LLM_CONFIGURED

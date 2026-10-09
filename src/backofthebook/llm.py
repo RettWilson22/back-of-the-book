@@ -2,8 +2,8 @@
 
 - `ClaudeProvider` uses the Anthropic SDK (structured outputs + server-side refusal fallback).
 - `GroqProvider` uses Groq's free tier (JSON mode + Pydantic validation with one repair retry).
-- `ExtractiveProvider` needs no API key: it returns the retrieved passages themselves, so the
-  app and retrieval can be tried offline.
+- `ExtractiveProvider` stands for "no AI model": answers quote the retrieved passages
+  themselves (see `AnswerEngine.quote_passages`), so the app and retrieval work offline.
 """
 
 from __future__ import annotations
@@ -263,24 +263,15 @@ class GroqProvider:
 
 
 class ExtractiveProvider:
-    """No-LLM mode: answers by quoting the retrieved sources the prompt already contains."""
+    """No-LLM mode. AnswerEngine answers by quoting passages itself, so this never writes."""
 
     name = "extractive"
 
     def chat_stream(self, system: str, messages: list[Message]) -> Iterator[StreamEvent]:
-        # Parses the prompt format produced by answer.build_prompt: "[Sn] (citation)\ntext".
-        user = messages[-1]["content"]
-        sources = re.findall(
-            r"^\[S(\d+)\] \(([^)]*)\)\n(.*?)(?=^\[S\d+\]|^Student question:|\Z)", user, re.M | re.S
+        raise LLMError(
+            ErrorCode.NO_LLM_CONFIGURED,
+            "Chat needs an LLM. Set GROQ_API_KEY or ANTHROPIC_API_KEY.",
         )
-        if not sources:
-            yield StreamEvent("text", "No matching passages were found in your course materials.")
-            return
-        yield StreamEvent("text", "No AI is set up, so here are the most relevant passages:\n\n")
-        for number, _citation, text in sources[:3]:
-            snippet = " ".join(text.split())
-            more = "…" if len(snippet) > 400 else ""
-            yield StreamEvent("text", f"- {snippet[:400]}{more} [S{number}]\n")
 
     def generate(self, system: str, user: str, schema: type[T]) -> T:
         raise LLMError(
