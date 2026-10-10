@@ -64,7 +64,7 @@ def app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         assert not at.exception, at.exception
         return at
 
-    start.built = built  # type: ignore[attr-defined]
+    start.built = built
     return start
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any
 
@@ -52,7 +53,7 @@ class FakeClaudeStream:
         ]
         self._final = SimpleNamespace(stop_reason=stop_reason)
 
-    def __iter__(self):  # type: ignore[no-untyped-def]
+    def __iter__(self) -> Iterator[SimpleNamespace]:
         return iter(self._events)
 
     def __enter__(self) -> FakeClaudeStream:
