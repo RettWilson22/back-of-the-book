@@ -114,10 +114,15 @@ def cmd_quiz(args: argparse.Namespace) -> int:
     from backofthebook.llm import make_provider
     from backofthebook.quiz import generate_quiz
 
-    retriever = _retriever(args.index or default_index_dir())
-    print_quiz(
-        generate_quiz(retriever, make_provider(args.llm), args.topic, args.n, args.difficulty)
+    quiz = generate_quiz(
+        _retriever(args.index or default_index_dir()),
+        make_provider(args.llm),
+        args.topic,
+        args.n,
+        args.difficulty,
+        check=not args.no_check,
     )
+    print_quiz(quiz)
     return 0
 
 

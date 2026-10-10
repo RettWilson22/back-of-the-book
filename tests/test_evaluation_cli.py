@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
-from conftest import FakeEmbedder, FakeReranker, make_pdf
+from conftest import FakeEmbedder, FakeLLM, FakeReranker, make_pdf
 
 from backofthebook import cli
 from backofthebook.evaluation import (
@@ -14,6 +14,7 @@ from backofthebook.evaluation import (
     load_questions,
 )
 from backofthebook.index import CorpusIndex
+from backofthebook.quiz import QuizDraft, QuizQuestion
 from backofthebook.retrieval import Mode, Retriever
 
 
@@ -127,6 +128,28 @@ def test_cli_quiz_without_llm_reports_error(tmp_path: Path, fake_models, capsys)
 
     assert cli.main(["--index", str(index), "quiz", "decision trees"]) == 4
     assert "Error [NO_LLM_CONFIGURED]: Quiz generation needs an LLM" in capsys.readouterr().err
+
+
+def test_cli_quiz_no_check_skips_the_source_check(tmp_path: Path, fake_models, monkeypatch, capsys):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "notes.md").write_text("# Trees\nDecision trees split data on features.")
+    index = tmp_path / "index"
+    cli.main(["--index", str(index), "ingest", str(docs)])
+    question = QuizQuestion(
+        question="What do decision trees split?",
+        choices=["Data", "Atoms", "Votes", "Words"],
+        answer_index=0,
+        explanation="They split data on features.",
+        sources=["S1"],
+    )
+    llm = FakeLLM(structured={QuizDraft: QuizDraft(questions=[question])})
+    monkeypatch.setattr("backofthebook.llm.make_provider", lambda name=None: llm)
+
+    args = ["--index", str(index), "quiz", "decision trees", "-n", "1", "--no-check"]
+    assert cli.main(args) == 0
+    assert len(llm.prompts) == 1  # written, never sent to the source check
+    assert "checked against its source" not in capsys.readouterr().out
 
 
 def test_cli_ingest_refuses_two_files_with_the_same_name(tmp_path: Path, fake_models, capsys):
