@@ -60,9 +60,6 @@ def wikipedia() -> WikipediaSource:
     return WikipediaSource(FakeWikipedia({"Super Mario Galaxy": GALAXY}))
 
 
-# --- Error catalog ---------------------------------------------------------------------------
-
-
 def test_every_error_code_is_in_the_catalog():
     assert set(CATALOG) == set(ErrorCode)
 
@@ -83,9 +80,6 @@ def test_error_carries_code_message_and_category_properties():
 def test_input_errors_are_not_retryable_and_exit_with_2():
     for code in (ErrorCode.EMPTY_TOPIC, ErrorCode.TOPIC_TOO_LONG, ErrorCode.INVALID_DIFFICULTY):
         assert (CATALOG[code].retryable, CATALOG[code].exit_code) == (False, 2)
-
-
-# --- Request validation ----------------------------------------------------------------------
 
 
 def test_check_request_normalizes_topic_and_difficulty():
@@ -117,9 +111,6 @@ def test_invalid_input_never_reaches_wikipedia_or_the_llm():
     with pytest.raises(BackOfTheBookError):
         generate_anyquiz(llm, "", 5, "easy", source=WikipediaSource(fake))
     assert fake.calls == [] and llm.prompts == []
-
-
-# --- Wikipedia source ------------------------------------------------------------------------
 
 
 def test_article_sections_split_on_headings_and_leave_out_references():
@@ -228,9 +219,6 @@ def test_network_failure_raises_source_unavailable(monkeypatch, failure):
         REAL_FETCH({"action": "query"})
     assert raised.value.code is ErrorCode.SOURCE_UNAVAILABLE
     assert raised.value.retryable
-
-
-# --- Quiz generator ------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("level", list(Difficulty))
@@ -345,9 +333,6 @@ def test_every_answer_failing_the_check_raises_no_valid_questions(wikipedia):
             llm_for([q("A?"), q("B?")], answers=[-1, 3]), "galaxy", 2, "hard", source=wikipedia
         )
     assert raised.value.code is ErrorCode.NO_VALID_QUESTIONS
-
-
-# --- CLI exit codes --------------------------------------------------------------------------
 
 
 def test_cli_anyquiz_bad_difficulty_exits_with_input_error(capsys):

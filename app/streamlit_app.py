@@ -469,8 +469,7 @@ def turn_record(answer: Answer) -> dict[str, object]:
     }
 
 
-# --- Layout: tabs first, so the upload box can sit inside "Ask" ----------------------------
-
+# The tabs are created first so the upload box can sit inside "Ask".
 ask_tab, course_tab, anyquiz_tab, about_tab = st.tabs(
     ["Ask", "Course quiz", "Quiz generator", "About"]
 )
@@ -795,9 +794,6 @@ def quiz_tab(key: str, placeholder: str, generate: Callable[[str, int, Difficult
         st.caption("Left out " + " and ".join(removed) + " question(s).")
 
 
-# --- Ask -----------------------------------------------------------------------------------
-
-
 REDRAW_SECONDS = 0.1  # how often a reply is redrawn while it streams in
 
 
@@ -895,8 +891,6 @@ with ask_tab:
         if record is not None:
             st.session_state.turns.append(record)
 
-# --- Quizzes -------------------------------------------------------------------------------
-
 with course_tab:
     st.markdown(
         "Questions written **only from your course materials**, each with its source. Uses the "
@@ -918,8 +912,6 @@ with anyquiz_tab:
         "e.g. Pokémon, the NFL, the French Revolution",
         lambda topic, n, level: generate_anyquiz(llm, topic, n, level),
     )
-
-# --- About ----------------------------------------------------------------------------
 
 with about_body:
     st.markdown(

@@ -418,9 +418,6 @@ def test_sample_comes_back_when_the_last_upload_is_removed(app):
     assert not any(b.key == "hide_sample" for b in at.button)  # nothing to fall back on
 
 
-# --- Uploads ---------------------------------------------------------------------------------
-
-
 def upload(at: AppTest, *files: tuple[str, bytes]) -> AppTest:
     return at.file_uploader[0].set_value([(n, data, "text/markdown") for n, data in files]).run()
 
@@ -645,9 +642,6 @@ def test_problem_report_names_public_sources(app):
     next(b for b in at.button if b.label == "Check answers").click().run()
 
     assert "ml.pptx, p. 2" in report_body(at)
-
-
-# --- Caching ---------------------------------------------------------------------------------
 
 
 def test_models_are_loaded_and_warmed_once_before_the_first_question(app):

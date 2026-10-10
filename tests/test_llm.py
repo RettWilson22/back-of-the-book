@@ -36,9 +36,6 @@ class Answer(BaseModel):
     value: int
 
 
-# --- Claude -------------------------------------------------------------------------------
-
-
 def _delta(kind: str, value: str) -> SimpleNamespace:
     field = "thinking" if kind == "thinking_delta" else "text"
     return SimpleNamespace(
@@ -183,9 +180,6 @@ def test_claude_errors_get_codes(error: Exception, code: ErrorCode, retryable: b
     assert raised.value.code is code
 
 
-# --- Groq ---------------------------------------------------------------------------------
-
-
 class FakeGroqClient:
     def __init__(
         self,
@@ -278,9 +272,6 @@ def test_groq_errors_become_readable_messages():
     assert "GROQ_API_KEY" in str(_groq_error(error))
 
 
-# --- Extractive and selection -------------------------------------------------------------
-
-
 def test_extractive_provider_cannot_chat_or_make_quizzes():
     """The answer engine quotes passages itself in no-AI mode; the provider never writes."""
     with pytest.raises(LLMError, match="needs an LLM") as raised:
@@ -330,9 +321,6 @@ def test_make_provider_never_uses_claude_unless_allowed(
 def test_make_provider_rejects_unknown_names():
     with pytest.raises(ValueError, match="unknown"):
         make_provider("gpt")
-
-
-# --- Call budget ----------------------------------------------------------------------------
 
 
 def test_call_limiter_allows_a_number_of_calls_per_window():
@@ -452,9 +440,6 @@ def test_groq_other_bad_requests_are_not_retried():
         GroqProvider(client=client).generate("sys", "q", Answer)
     assert raised.value.code is ErrorCode.LLM_REQUEST_REJECTED
     assert len(client.calls) == 1
-
-
-# --- Output cut off at the token limit -------------------------------------------------------
 
 
 def test_groq_answer_cut_off_at_the_limit_says_so():

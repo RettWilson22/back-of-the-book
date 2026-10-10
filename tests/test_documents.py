@@ -141,9 +141,6 @@ def test_find_documents_expands_folders(tmp_path: Path):
     assert [p.name for p in found] == ["b.md", "a.txt"]
 
 
-# --- Limits for untrusted uploads -----------------------------------------------------------
-
-
 def test_pdf_over_the_page_limit_is_refused_before_reading_text(tmp_path: Path):
     pdf = make_pdf(tmp_path / "long.pdf", [f"Page {n} text." for n in range(1, 6)])
 
