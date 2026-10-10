@@ -2,11 +2,11 @@
 
 [![CI](https://github.com/RettWilson22/back-of-the-book/actions/workflows/ci.yml/badge.svg)](https://github.com/RettWilson22/back-of-the-book/actions/workflows/ci.yml)
 
-Ask questions about your course materials and get answers that cite the exact page they came from. Generate practice quizzes from the same materials, or use the **Quiz generator** to get a quiz on any topic at all, at **easy, medium, or hard** difficulty. And see how accurate the retrieval actually is, measured on a fixed question set instead of assumed.
+Ask questions about your course materials and get answers that cite the exact page they came from. Generate practice quizzes from the same materials, or use the Quiz generator to get a quiz on any topic at all, at easy, medium, or hard difficulty. And see how accurate the retrieval actually is, measured on a fixed question set instead of assumed.
 
 The name comes from the answers in the back of a textbook: every answer here tells you the page it came from, so you can check it.
 
-Works with PDFs (slides, notes, textbooks), PowerPoint decks, Markdown, and plain text. Answers come from **Groq** (free tier) or **Claude**, or from an offline mode that quotes the matching passages with no API key at all.
+Works with PDFs (slides, notes, textbooks), PowerPoint decks, Markdown, and plain text. Answers come from Groq (free tier) or Claude, or from an offline mode that quotes the matching passages with no API key at all.
 
 ## Results
 
@@ -21,12 +21,15 @@ Retrieval accuracy on [OpenStax *Principles of Data Science*](https://openstax.o
 
 75 questions, two per section of the book. Full tables, including Recall@3: [`eval/results.md`](eval/results.md), held-out set: [`eval/results-heldout.md`](eval/results-heldout.md).
 
-**What the numbers say**
+### What the numbers say
+
 - Reranking gives the best top-1 accuracy and MRR, at the cost of about a quarter of a second per query on a laptop CPU. The reranker scores the top 20 fused candidates. Scoring 50 gave the same Recall@1/3/5/10 and MRR on both question sets and took more than twice as long (594 ms against 234 ms on the main set and 689 ms against 308 ms on the held-out set, measured on the same machine).
 - Plain hybrid search is *worse* than embeddings alone at Recall@10. BM25 pulls in passages that share words but not meaning. Fusion only paid off once a reranker re-scored the candidates.
 - Two of the 75 questions still miss with reranking (q053 and q065). For both, the top ten include a nearby page from the same discussion (for q053 the page before the answer, for q065 the setup of the example three pages earlier) but not the labeled page. The strict single-page metric counts them as misses anyway; I didn't relax it after seeing results.
 
-**Knowing when the materials don't cover a question.** Before answering, Back of the Book checks how close the best passage is to the question. If nothing is close, it answers from general knowledge and labels the answer that way instead of citing passages that don't support it. The threshold was set on the main question set and then checked on a [held-out set](eval/heldout.jsonl) written afterwards:
+### Knowing when the materials don't cover a question
+
+Before answering, Back of the Book checks how close the best passage is to the question. If nothing is close, it answers from general knowledge and labels the answer that way instead of citing passages that don't support it. The threshold was set on the main question set and then checked on a [held-out set](eval/heldout.jsonl) written afterwards:
 
 | Threshold | Main set: real questions kept / off-topic flagged | Held-out: kept / flagged |
 |---|---|---|
@@ -47,15 +50,15 @@ Type any topic (*Pokémon*, *the NFL*, *the French Revolution*), pick **Easy**, 
 | Medium | Understanding and application; plausible wrong choices |
 | Hard | Lesser-known details, multi-step reasoning, and edge cases; wrong choices based on common misconceptions |
 
-**Every quiz comes from a source.** An earlier version wrote quizzes from the model's memory, and live testing on niche topics (Super Mario Galaxy) produced wrong answer keys. A second pass that re-answered from memory couldn't catch them, because a model that's confidently wrong is wrong both times. So the Quiz generator now finds the topic's Wikipedia article (skipping "may refer to" pages), takes passages from the introduction and from sections spread across the whole article (leaving out references and link lists), and writes questions only from those passages. Each question must cite the passage that states its answer.
+Every quiz comes from a source. An earlier version wrote quizzes from the model's memory, and live testing on niche topics (Super Mario Galaxy) produced wrong answer keys. A second pass that re-answered from memory couldn't catch them, because a model that's confidently wrong is wrong both times. So the Quiz generator now finds the topic's Wikipedia article (skipping "may refer to" pages), takes passages from the introduction and from sections spread across the whole article (leaving out references and link lists), and writes questions only from those passages. Each question must cite the passage that states its answer.
 
-**Source check.** After the quiz is written, a separate pass sees each question, its choices, and its cited passages, but not the answer key, and picks the answer the passages support (or none). Questions where that doesn't match the key are left out, and the app says how many. The quiz asks for a couple of spare questions so you still get the number you asked for. The **Course quiz** works the same way, using passages from your materials instead.
+After the quiz is written, a separate source check sees each question, its choices, and its cited passages, but not the answer key, and picks the answer the passages support (or none). Questions where that doesn't match the key are left out, and the app says how many. The quiz asks for a couple of spare questions so you still get the number you asked for. The **Course quiz** works the same way, using passages from your materials instead.
 
 If a question still looks wrong, **Report a problem** under it opens a pre-filled GitHub issue with the question, answer key, and sources.
 
 ## Error codes
 
-Every failure is a `BackOfTheBookError` ([`errors.py`](src/backofthebook/errors.py)) with a stable **code**, a **message** that's safe to show users, a **retryable** flag, and optional machine-readable **details** (such as the provider's HTTP status). The web app shows the message, plus the code for anything that isn't a simple input mistake. The CLI prints `Error [CODE]: message` and exits with the category's exit code.
+Every failure is a `BackOfTheBookError` ([`errors.py`](src/backofthebook/errors.py)) with a stable `code`, a `message` that's safe to show users, a `retryable` flag, and optional machine-readable `details` (such as the provider's HTTP status). The web app shows the message, plus the code for anything that isn't a simple input mistake. The CLI prints `Error [CODE]: message` and exits with the category's exit code.
 
 | Code | When | Retryable | CLI exit |
 |---|---|---|---|
@@ -79,7 +82,7 @@ Every failure is a `BackOfTheBookError` ([`errors.py`](src/backofthebook/errors.
 | `NO_VALID_QUESTIONS` | Nothing usable survived validation and the source check | yes | 6 |
 | `INTERNAL_ERROR` | An unexpected bug (logged with a traceback) | no | 1 |
 
-Invalid input is rejected **before** any API call. A test checks that every code has a catalog entry.
+Invalid input is rejected before any API call. A test checks that every code has a catalog entry.
 
 ## How it works
 
@@ -121,17 +124,17 @@ Invalid input is rejected **before** any API call. A test checks that every code
 
 ## Design decisions
 
-- **Citations are checked, not trusted.** The model can only cite `[S1]`–`[Sn]`. Anything else is reported as an invalid citation instead of being shown as a source.
-- **Say where an answer comes from.** When the materials cover a question, the answer cites them. When they don't, it's answered from general knowledge and labeled that way, rather than refused or dressed up with citations that don't support it.
-- **Show the model's reasoning.** Claude returns a reasoning summary (`thinking.display: "summarized"`) and Groq's gpt-oss models return reasoning text, streamed into a collapsible "Thought for N seconds" section.
-- **Chunks never cross pages.** Slightly less context per chunk, but every passage maps to exactly one page. That's what makes page-level citations and page-level evaluation possible.
-- **Retrieval is evaluated without an LLM.** The metrics are deterministic, free to rerun, and isolate the part of the system most responsible for wrong answers.
-- **Quizzes use structured output.** On Claude, the response must match a JSON schema (`output_format`). On Groq, JSON mode plus Pydantic validation, with one automatic repair attempt. Invalid questions are dropped, not shown.
-- **Claude requests opt into server-side refusal fallback** (`fallbacks: "default"`) and check `stop_reason` before reading output.
+- Citations are checked, not trusted. The model can only cite `[S1]`–`[Sn]`. Anything else is reported as an invalid citation instead of being shown as a source.
+- When the materials cover a question, the answer cites them. When they don't, it's answered from general knowledge and labeled that way, rather than refused or dressed up with citations that don't support it.
+- The model's reasoning is shown. Claude returns a reasoning summary (`thinking.display: "summarized"`) and Groq's gpt-oss models return reasoning text, streamed into a collapsible "Thought for N seconds" section.
+- Chunks never cross pages. Each chunk gets a little less context, but every passage maps to exactly one page, which is what makes page-level citations and page-level evaluation possible.
+- Retrieval is evaluated without an LLM, so the metrics are deterministic, free to rerun, and isolate the part of the system most responsible for wrong answers.
+- Quizzes use structured output. On Claude, the response must match a JSON schema (`output_format`). On Groq, JSON mode plus Pydantic validation, with one automatic repair attempt. Invalid questions are dropped, not shown.
+- Claude requests opt into server-side refusal fallback (`fallbacks: "default"`) and check `stop_reason` before reading output.
 
 ## Try it
 
-**Live demo: https://backofthebook.streamlit.app**
+Live demo: https://backofthebook.streamlit.app
 
 It's preloaded with the sample textbook. Ask a question (or click one of the examples), open **Course quiz** or **Quiz generator** and pick a topic, or add your own slides or notes at the top of **Ask**. Uploaded files stay in your session and are deleted after they're read, but the text used to answer a question is sent to the AI provider (Groq). You can switch to No AI under **About → Settings**.
 
@@ -184,7 +187,7 @@ Use your own materials with `backofthebook ingest path/to/slides/`, or upload fi
 ## Testing
 
 ```bash
-pytest                 # 242 tests, about 20 s, no downloads or API keys needed (fake models and LLM)
+pytest                 # 243 tests, about 20 s, no downloads or API keys needed (fake models and LLM)
 pytest -m slow         # real embedding/reranking models; includes a guard that fails
                        # if textbook Recall@10 drops below 95% or MRR below 0.80
 ruff check . && mypy src app/streamlit_app.py
@@ -194,11 +197,11 @@ The fast tests cover every module (97% line coverage of `src/`), every error cod
 
 ## Limitations
 
-- **Live LLM calls aren't part of the test suite.** Claude and Groq are tested against their SDK interfaces with fake clients (exact request parameters, error handling, refusals). Answer *quality* hasn't been evaluated, only retrieval.
-- **Sourcing and the source check reduce wrong answer keys but don't eliminate them.** A question can still be ambiguous, or the source itself can be wrong. Answer-key accuracy hasn't been measured yet; [`scripts/audit_quizzes.py`](scripts/audit_quizzes.py) generates quizzes on fixed topics (sourced vs. from memory) for grading by hand.
-- **Scanned PDFs need OCR**, which isn't included. Image-only pages are skipped.
-- **Printed page detection** looks for headers/footers like "12 • Chapter title". Documents without them fall back to PDF page numbers.
-- **Evaluation scope:** one textbook, LLM-drafted questions reviewed by one person, single-page labels. See [`eval/README.md`](eval/README.md).
+- Live LLM calls aren't part of the test suite. Claude and Groq are tested against their SDK interfaces with fake clients (exact request parameters, error handling, refusals). Answer *quality* hasn't been evaluated, only retrieval.
+- Sourcing and the source check reduce wrong answer keys but don't eliminate them. A question can still be ambiguous, or the source itself can be wrong. Answer-key accuracy hasn't been measured yet; [`scripts/audit_quizzes.py`](scripts/audit_quizzes.py) generates quizzes on fixed topics (sourced vs. from memory) for grading by hand.
+- Scanned PDFs need OCR, which isn't included. Image-only pages are skipped.
+- Printed page detection looks for headers and footers like "12 • Chapter title". Documents without them fall back to PDF page numbers.
+- The evaluation covers one textbook, with LLM-drafted questions reviewed by one person and a single labeled page per question. See [`eval/README.md`](eval/README.md).
 
 ## License
 
