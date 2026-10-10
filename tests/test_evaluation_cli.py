@@ -119,6 +119,19 @@ def test_cli_ingest_with_no_documents_fails(tmp_path: Path, fake_models):
     assert cli.main(["--index", str(tmp_path / "i"), "ingest", str(tmp_path)]) == 1
 
 
+def test_cli_reports_a_missing_index_without_a_traceback(tmp_path: Path, fake_models, capsys):
+    assert cli.main(["--index", str(tmp_path / "none"), "ask", "what is variance"]) == 1
+    assert "run `backofthebook ingest` first" in capsys.readouterr().err
+
+
+def test_cli_ingest_reports_an_unsupported_file_type(tmp_path: Path, fake_models, capsys):
+    slides = tmp_path / "slides.key"
+    slides.write_bytes(b"")
+
+    assert cli.main(["--index", str(tmp_path / "i"), "ingest", str(slides)]) == 1
+    assert "unsupported file type" in capsys.readouterr().err
+
+
 def test_cli_quiz_without_llm_reports_error(tmp_path: Path, fake_models, capsys):
     docs = tmp_path / "docs"
     docs.mkdir()

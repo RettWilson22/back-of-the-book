@@ -7,8 +7,14 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from backofthebook.documents import UnsupportedFileError
 from backofthebook.errors import BackOfTheBookError, ErrorCode
-from backofthebook.index import DEFAULT_EMBEDDING_MODEL, USER_INDEX, default_index_dir
+from backofthebook.index import (
+    DEFAULT_EMBEDDING_MODEL,
+    USER_INDEX,
+    IndexBuildError,
+    default_index_dir,
+)
 
 if TYPE_CHECKING:
     from backofthebook.quiz import Quiz
@@ -224,6 +230,9 @@ def main(argv: list[str] | None = None) -> int:
         retry = " (you can try again)" if e.retryable else ""
         print(f"\nError [{e.code}]: {e.message}{retry}", file=sys.stderr)
         return e.exit_code
+    except (IndexBuildError, UnsupportedFileError) as e:
+        print(f"\nError: {e}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
