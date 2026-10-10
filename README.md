@@ -19,7 +19,7 @@ Retrieval accuracy on [OpenStax *Principles of Data Science*](https://openstax.o
 | Hybrid (BM25 + embeddings, RRF) | 74.7% | 90.7% | 94.7% | 0.820 | 10 ms |
 | **Hybrid + cross-encoder rerank** (default) | **76.0%** | 93.3% | **97.3%** | **0.834** | 234 ms |
 
-75 questions, two per section of the book. Full tables, including Recall@3: [`eval/results.md`](eval/results.md), held-out set: [`eval/results-heldout.md`](eval/results-heldout.md).
+75 questions, one or two per section of the book. Full tables, including Recall@3: [`eval/results.md`](eval/results.md), held-out set: [`eval/results-heldout.md`](eval/results-heldout.md).
 
 ### What the numbers say
 
