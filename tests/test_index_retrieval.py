@@ -2,11 +2,18 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from conftest import FakeEmbedder, FakeReranker
+from conftest import FakeEmbedder, FakeLLM, FakeReranker
 
+from backofthebook.answer import AnswerEngine
 from backofthebook.chunking import Chunk, chunk_pages
 from backofthebook.documents import Page
-from backofthebook.index import CorpusIndex, IndexBuildError
+from backofthebook.index import (
+    BUNDLED_INDEX,
+    USER_INDEX,
+    CorpusIndex,
+    IndexBuildError,
+    default_index_dir,
+)
 from backofthebook.retrieval import Mode, Retriever, reciprocal_rank_fusion, tokenize
 
 
@@ -93,8 +100,6 @@ def test_top_similarity_is_higher_for_on_topic_questions(retriever: Retriever):
 
 
 def test_default_index_prefers_the_users_own_index(tmp_path: Path, index: CorpusIndex):
-    from backofthebook.index import BUNDLED_INDEX, USER_INDEX, default_index_dir
-
     assert default_index_dir(tmp_path) == tmp_path / BUNDLED_INDEX
     index.save(tmp_path / USER_INDEX)
     assert default_index_dir(tmp_path) == tmp_path / USER_INDEX
@@ -169,10 +174,6 @@ class CountingEmbedder(FakeEmbedder):
 
 
 def test_a_question_is_embedded_once_for_the_scope_check_and_the_search(index: CorpusIndex):
-    from conftest import FakeLLM
-
-    from backofthebook.answer import AnswerEngine
-
     embedder = CountingEmbedder()
     retriever = Retriever(index, embedder, FakeReranker())
     engine = AnswerEngine(retriever, FakeLLM("A [S1]."), min_similarity=0.0)

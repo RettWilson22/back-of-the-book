@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import re
+import urllib.parse
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -12,6 +15,7 @@ from conftest import TOY_PAGES, FakeEmbedder, FakeLLM, FakeReranker, FakeWikiped
 from streamlit.testing.v1 import AppTest
 
 from backofthebook.chunking import chunk_pages
+from backofthebook.documents import Page
 from backofthebook.index import CorpusIndex
 from backofthebook.llm import StreamEvent
 from backofthebook.quiz import AnswerSheet, QuizDraft, QuizQuestion
@@ -294,13 +298,12 @@ def test_unexpected_errors_are_reported_as_internal_errors(app, monkeypatch):
     assert any("INTERNAL_ERROR" in c.value for c in at.caption)
 
 
-def test_api_key_is_read_from_streamlit_secrets(app, tmp_path, monkeypatch):
+def test_api_key_is_read_from_streamlit_secrets(app, monkeypatch):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     at = AppTest.from_file(APP, default_timeout=30)
     at.secrets["GROQ_API_KEY"] = "test-key-from-secrets"
     app(FakeLLM())  # sets up the fake index and models
     at.run()
-    import os
 
     assert not at.exception
     assert os.environ.get("GROQ_API_KEY") == "test-key-from-secrets"
@@ -309,10 +312,6 @@ def test_api_key_is_read_from_streamlit_secrets(app, tmp_path, monkeypatch):
 
 def uploaded(name: str, text: str):
     """Stand-in for a processed upload, as stored in the session."""
-    from types import SimpleNamespace
-
-    from backofthebook.documents import Page
-
     index = CorpusIndex.build(chunk_pages([Page(name, 1, text)]), FakeEmbedder())
     return SimpleNamespace(name=name, index=index, pages=1, notes=[])
 
@@ -604,9 +603,6 @@ def test_failure_while_indexing_an_upload_becomes_a_message(app, monkeypatch):
 
 
 def report_body(at: AppTest) -> str:
-    import re
-    import urllib.parse
-
     caption = next(c.value for c in at.caption if "Report a problem" in c.value)
     url = re.search(r"\[Report a problem\]\((\S+)\)", caption).group(1)
     return urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["body"][0]

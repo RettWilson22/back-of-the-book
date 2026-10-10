@@ -69,12 +69,10 @@ class FakeClaudeStream:
 class FakeClaudeClient:
     def __init__(self, tokens=("Hi", " there"), stop_reason="end_turn", parsed=None, raises=None):
         self.calls: list[dict[str, Any]] = []
-        self._tokens, self._stop, self._parsed, self._raises = (
-            list(tokens),
-            stop_reason,
-            parsed,
-            raises,
-        )
+        self._tokens = list(tokens)
+        self._stop = stop_reason
+        self._parsed = parsed
+        self._raises = raises
         self.beta = SimpleNamespace(
             messages=SimpleNamespace(stream=self._stream, parse=self._parse)
         )

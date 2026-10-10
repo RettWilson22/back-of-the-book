@@ -9,6 +9,7 @@ import pytest
 from conftest import TOY_PAGES
 
 from backofthebook.chunking import chunk_pages
+from backofthebook.documents import load_document
 from backofthebook.evaluation import evaluate_mode, load_questions
 from backofthebook.index import CorpusIndex, SentenceTransformerEmbedder
 from backofthebook.retrieval import CrossEncoderReranker, Mode, Retriever
@@ -51,8 +52,6 @@ def test_off_topic_scores_below_on_topic(real_retriever: Retriever):
 @pytest.mark.skipif(not TEXTBOOK.exists(), reason="run scripts/download_corpus.py first")
 def test_textbook_retrieval_does_not_regress(tmp_path: Path):
     """Guards the published numbers: fails if hybrid+rerank Recall@10 drops below 95%."""
-    from backofthebook.documents import load_document
-
     embedder = SentenceTransformerEmbedder()
     index = CorpusIndex.build(chunk_pages(load_document(TEXTBOOK)), embedder)
     retriever = Retriever(index, embedder, CrossEncoderReranker())

@@ -2,7 +2,7 @@ import http.client
 import urllib.error
 
 import pytest
-from conftest import FakeLLM, FakeWikipedia, make_pdf
+from conftest import FakeEmbedder, FakeLLM, FakeReranker, FakeWikipedia, make_pdf
 
 from backofthebook import cli, wiki
 from backofthebook.errors import CATALOG, BackOfTheBookError, ErrorCode
@@ -381,8 +381,6 @@ def test_cli_anyquiz_prints_a_sourced_quiz(monkeypatch, capsys):
 
 
 def test_cli_course_quiz_off_topic_exits_with_not_covered(tmp_path, monkeypatch, capsys):
-    from conftest import FakeEmbedder, FakeReranker
-
     class Embedder(FakeEmbedder):
         def __init__(self, model_name: str = "") -> None:
             self.model_name = "fake-embedder"
