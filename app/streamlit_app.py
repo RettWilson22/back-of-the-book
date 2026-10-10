@@ -20,7 +20,8 @@ from pathlib import Path
 # Always import the package from this repo's src/, not a copy installed earlier. Hosts like
 # Streamlit Community Cloud install requirements once and only reinstall when requirements.txt
 # changes, so an installed copy can fall behind the app code after a push.
-SRC = Path(__file__).resolve().parents[1] / "src"
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
 import streamlit as st
@@ -85,7 +86,6 @@ from backofthebook.sample import FILENAME as SAMPLE_FILE
 from backofthebook.sample import build_sample_index
 from backofthebook.wiki import Passage
 
-ROOT = Path(__file__).resolve().parents[1]
 INDEX_DIR = Path(os.environ.get("BACKOFTHEBOOK_INDEX") or default_index_dir(ROOT))
 # The repo ships a prebuilt sample index, so this only runs if it was deleted (0 to skip).
 USE_SAMPLE = os.environ.get("BACKOFTHEBOOK_SAMPLE", "1") != "0"

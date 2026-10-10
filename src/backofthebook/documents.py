@@ -57,11 +57,10 @@ def _check_length(name: str, pages: list[Page], max_chars: int | None) -> None:
 
 def clean_text(text: str) -> str:
     """Normalize extracted text: rejoin hyphenated line breaks and collapse whitespace."""
-    text = text.replace("­", "")  # soft hyphens
+    text = text.replace("\u00ad", "")  # soft hyphens
     text = re.sub(r"(\w)-\n(\w)", r"\1\2", text)
-    text = re.sub(
-        r"(\w) -([a-z])", r"\1-\2", text
-    )  # pypdf splits "peer-reviewed" as "peer -reviewed"
+    # pypdf splits "peer-reviewed" as "peer -reviewed".
+    text = re.sub(r"(\w) -([a-z])", r"\1-\2", text)
     # Two linear passes. A single r"\s*\n\s*" backtracks over every long run of spaces that
     # has no line break in it (such as non-breaking spaces), which is quadratic.
     text = re.sub(r"[^\S\n]+", " ", text)  # any run of spaces, tabs, NBSPs... -> one space

@@ -164,10 +164,10 @@ class Retriever:
                 [chunks[i].id for i, _ in self._dense_ranking(query, self.candidates, allowed)],
             ]
         )
-        if mode is Mode.HYBRID or self.reranker is None:
-            if mode is Mode.HYBRID_RERANK:
-                raise ValueError("hybrid+rerank mode needs a reranker")
+        if mode is Mode.HYBRID:
             return [Hit(self.index.get(cid), s) for cid, s in fused[:k]]
+        if self.reranker is None:
+            raise ValueError("hybrid+rerank mode needs a reranker")
 
         pool = [self.index.get(cid) for cid, _ in fused[: self.candidates]]
         scores = self.reranker.score(query, [c.text for c in pool])

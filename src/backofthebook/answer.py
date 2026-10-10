@@ -2,7 +2,8 @@
 
 When the question is about specific documents (the student's uploads, or ones they clicked)
 and those are short, the model gets the WHOLE text, so it can answer anything in them, like
-"who is the teacher?". For longer documents, or the whole library, it works like this:
+"who is the teacher?". For longer documents, or the whole library, it first checks whether
+the materials cover the question:
 - if they do, the closest passages are added to the student's message, labeled [S1]..[Sn],
   and the model must cite them. After generation every citation is checked against the
   passages actually provided; citations to sources that don't exist are reported, not shown.
@@ -239,7 +240,8 @@ class AnswerEngine:
         in full; otherwise None."""
         if not sources:
             return None
-        chosen = [c for c in self.retriever.index.chunks if c.source in set(sources)]
+        wanted = set(sources)
+        chosen = [c for c in self.retriever.index.chunks if c.source in wanted]
         words = sum(len(c.text.split()) for c in chosen)
         if words > self.full_text_words or sum(len(c.text) for c in chosen) > self.full_text_chars:
             return None

@@ -269,6 +269,8 @@ class GroqProvider:
             yield from _cut_off("Groq", answered)
 
     def generate(self, system: str, user: str, schema: type[T]) -> T:
+        import groq
+
         schema_hint = "\n\nRespond with only a JSON object matching this JSON Schema:\n" + (
             json.dumps(schema.model_json_schema())
         )
@@ -276,8 +278,6 @@ class GroqProvider:
             {"role": "system", "content": system + schema_hint},
             {"role": "user", "content": user},
         ]
-        import groq
-
         problem = ""
         for _ in range(2):  # one repair attempt with the problem as feedback
             try:
