@@ -63,16 +63,16 @@ T = TypeVar("T")
 
 def with_retries(action: Callable[[], T], attempts: int = 6) -> T:
     """Retry rate limits and other retryable errors (the free Groq tier is rate limited)."""
-    for attempt in range(attempts):
+    for attempt in range(1, attempts):
         try:
             return action()
         except BackOfTheBookError as e:
-            if not e.retryable or attempt == attempts - 1:
+            if not e.retryable:
                 raise
-            wait = 20 * (attempt + 1)
+            wait = 20 * attempt
             print(f"    {e.code}; retrying in {wait}s", file=sys.stderr)
             time.sleep(wait)
-    raise AssertionError("unreachable")
+    return action()
 
 
 def memory_quiz(llm: LLMProvider, topic: str) -> list[dict[str, Any]]:
@@ -157,4 +157,7 @@ def report() -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--report", action="store_true", help="summarize eval/anyquiz/grades.jsonl")
-    report() if parser.parse_args().report else generate()
+    if parser.parse_args().report:
+        report()
+    else:
+        generate()
