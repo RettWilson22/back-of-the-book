@@ -1,7 +1,7 @@
 """Answer questions in a conversation, grounded in course materials when they cover it.
 
 When the question is about specific documents (the student's uploads, or ones they clicked)
-and those are short, the model gets the WHOLE text, so it can answer anything in them, like
+and those are short, the model gets the whole text, so it can answer anything in them, like
 "who is the teacher?". For longer documents, or the whole library, it first checks whether
 the materials cover the question:
 - if they do, the closest passages are added to the student's message, labeled [S1]..[Sn],

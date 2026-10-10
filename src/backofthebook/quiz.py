@@ -1,10 +1,10 @@
 """Multiple-choice quizzes at three difficulty levels, always written from a source.
 
-- **Course quiz** (`generate_quiz`): passages retrieved from your course materials.
-- **Quiz generator** (`generate_anyquiz`): any topic; passages from the best-matching
+- Course quiz (`generate_quiz`): passages retrieved from your course materials.
+- Quiz generator (`generate_anyquiz`): any topic; passages from the best-matching
   Wikipedia article.
 
-Both modes work the same way after that: the model writes questions using ONLY the passages
+Both modes work the same way after that: the model writes questions using only the passages
 and names the passage each question comes from. Then a separate source check shows each
 question, its choices (not the answer key), and its cited passages to the model again, and
 asks which choice the passages support. Questions whose answer key doesn't match, or that
