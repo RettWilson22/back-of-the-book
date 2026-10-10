@@ -181,7 +181,7 @@ def load_pptx(path: Path) -> list[Page]:
         for shape in slide.shapes:
             if shape.has_text_frame:
                 parts.append(shape.text_frame.text)
-            if getattr(shape, "has_table", False) and shape.has_table:
+            if shape.has_table:
                 for row in shape.table.rows:
                     parts.append(" | ".join(cell.text for cell in row.cells))
         if slide.has_notes_slide:
