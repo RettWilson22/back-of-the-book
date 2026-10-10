@@ -904,7 +904,7 @@ with course_tab:
 
 with anyquiz_tab:
     st.markdown(
-        "**Any topic you like.** The Quiz generator looks up a reliable source on the topic and "
+        "**Any topic you like.** The Quiz generator finds the topic's Wikipedia article and "
         "writes the quiz from it, so every answer comes with a source you can check."
     )
     quiz_tab(
