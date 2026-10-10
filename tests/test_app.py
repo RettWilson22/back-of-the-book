@@ -299,7 +299,8 @@ def test_unexpected_errors_are_reported_as_internal_errors(app, monkeypatch):
 
 
 def test_api_key_is_read_from_streamlit_secrets(app, monkeypatch):
-    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    # Not delenv: it records nothing for a missing key, so the app's key would outlive the test.
+    monkeypatch.setenv("GROQ_API_KEY", "")
     at = AppTest.from_file(APP, default_timeout=30)
     at.secrets["GROQ_API_KEY"] = "test-key-from-secrets"
     app(FakeLLM())  # sets up the fake index and models
@@ -307,7 +308,6 @@ def test_api_key_is_read_from_streamlit_secrets(app, monkeypatch):
 
     assert not at.exception
     assert os.environ.get("GROQ_API_KEY") == "test-key-from-secrets"
-    monkeypatch.delenv("GROQ_API_KEY", raising=False)
 
 
 def uploaded(name: str, text: str):
