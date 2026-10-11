@@ -8,6 +8,14 @@ The name comes from the answers in the back of a textbook: every answer here tel
 
 Works with PDFs (slides, notes, textbooks), PowerPoint decks, Markdown, and plain text. Answers come from Groq (free tier) or Claude, or from an offline mode that quotes the matching passages with no API key at all.
 
+## Try it
+
+Live demo: https://backofthebook.streamlit.app
+
+It's preloaded with the sample textbook. Ask a question (or click one of the examples), open **Course quiz** or **Quiz generator** and pick a topic, or add your own slides or notes at the top of **Ask**. Uploaded files stay in your session and are deleted after they're read, but the text used to answer a question is sent to the AI provider (Groq). You can switch to No AI under **About → Settings**.
+
+![The Ask tab with No AI selected, answering "What is the difference between mean and median?" with the three closest passages from the sample textbook](docs/images/ask-no-ai.png)
+
 ## Results
 
 Retrieval accuracy on [OpenStax *Principles of Data Science*](https://openstax.org/details/books/principles-data-science) (561 pages, 1,479 passages). Each question is labeled with the page that answers it, and a hit counts only if a retrieved passage comes from that page. The question set was [committed before any retrieval run](eval/README.md).
@@ -55,34 +63,6 @@ Every quiz comes from a source. An earlier version wrote quizzes from the model'
 After the quiz is written, a separate source check sees each question, its choices, and its cited passages, but not the answer key, and picks the answer the passages support (or none). Questions where that doesn't match the key are left out, and the app says how many. The quiz asks for a couple of spare questions so you still get the number you asked for. The **Course quiz** works the same way, using passages from your materials instead.
 
 If a question still looks wrong, **Report a problem** under it opens a pre-filled GitHub issue with the question, answer key, and sources.
-
-## Error codes
-
-Every failure is a `BackOfTheBookError` ([`errors.py`](src/backofthebook/errors.py)) with a stable `code`, a `message` that's safe to show users, a `retryable` flag, and optional machine-readable `details` (such as the provider's HTTP status). The web app shows the message, plus the code for anything that isn't a simple input mistake. The CLI prints `Error [CODE]: message` and exits with the category's exit code.
-
-| Code | When | Retryable | CLI exit |
-|---|---|---|---|
-| `EMPTY_TOPIC` | No topic given | no | 2 |
-| `TOPIC_TOO_LONG` | Topic over 200 characters | no | 2 |
-| `INVALID_QUESTION_COUNT` | Not 1–10 questions | no | 2 |
-| `INVALID_DIFFICULTY` | Not easy / medium / hard | no | 2 |
-| `QUESTION_TOO_LONG` | Question over 2,000 characters | no | 2 |
-| `DUPLICATE_FILE_NAMES` | `ingest` was given two different files with the same name | no | 2 |
-| `TOPIC_NOT_COVERED` | Course quiz topic isn't in the loaded materials | no | 3 |
-| `SOURCE_NOT_FOUND` | No Wikipedia article matches the Quiz generator topic | no | 3 |
-| `SOURCE_UNAVAILABLE` | Wikipedia couldn't be reached | yes | 5 |
-| `NO_LLM_CONFIGURED` | No `GROQ_API_KEY` or `ANTHROPIC_API_KEY` | no | 4 |
-| `LLM_AUTH_FAILED` | API key rejected | no | 4 |
-| `LLM_RATE_LIMITED` | Provider rate limit | yes | 5 |
-| `LLM_UNAVAILABLE` | Network error or provider 5xx | yes | 5 |
-| `LLM_REQUEST_REJECTED` | Provider 4xx (e.g. invalid model) | no | 5 |
-| `LLM_REFUSED` | Model declined the request | no | 5 |
-| `LLM_BAD_RESPONSE` | Malformed or truncated response, even after one repair attempt | yes | 5 |
-| `USAGE_LIMIT` | The web app's limit on model requests per minute or per visitor was reached | yes | 5 |
-| `NO_VALID_QUESTIONS` | Nothing usable survived validation and the source check | yes | 6 |
-| `INTERNAL_ERROR` | An unexpected bug (logged with a traceback) | no | 1 |
-
-Invalid input is rejected before any API call. A test checks that every code has a catalog entry.
 
 ## How it works
 
@@ -132,12 +112,6 @@ Invalid input is rejected before any API call. A test checks that every code has
 - Quizzes use structured output. On Claude, the response must match a JSON schema (`output_format`). On Groq, JSON mode plus Pydantic validation, with one automatic repair attempt. Invalid questions are dropped, not shown.
 - Claude requests opt into server-side refusal fallback (`fallbacks: "default"`) and check `stop_reason` before reading output.
 
-## Try it
-
-Live demo: https://backofthebook.streamlit.app
-
-It's preloaded with the sample textbook. Ask a question (or click one of the examples), open **Course quiz** or **Quiz generator** and pick a topic, or add your own slides or notes at the top of **Ask**. Uploaded files stay in your session and are deleted after they're read, but the text used to answer a question is sent to the AI provider (Groq). You can switch to No AI under **About → Settings**.
-
 ## Getting started
 
 ```bash
@@ -183,6 +157,10 @@ Use your own materials with `backofthebook ingest path/to/slides/`, or upload fi
 1. Fork this repo, then at [share.streamlit.io](https://share.streamlit.io) choose **Create app → Deploy a public app from GitHub**.
 2. Repository: your fork, branch `main`, main file `app/streamlit_app.py`. Under **Advanced settings**, pick Python 3.12 and add `GROQ_API_KEY = "..."` as a secret.
 3. Deploy. Cloud installs the exact versions pinned in `requirements.txt`, which is compiled from `requirements.in` for Linux and Python 3.12 (the command to update it is at the top of the file). The first boot also downloads the two models, so it takes a few minutes. After that the bundled index loads at startup, so there's no setup step. Peak memory is about 0.6 GB.
+
+## Error codes
+
+Every failure is a `BackOfTheBookError` with a stable code (such as `LLM_RATE_LIMITED`), a message that's safe to show users, and a flag for whether trying again could help. The web app shows the message, plus the code for anything that isn't a simple input mistake, and the CLI exits with a status for each kind of failure. The full list is in [`docs/error-codes.md`](docs/error-codes.md).
 
 ## Testing
 
