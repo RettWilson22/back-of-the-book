@@ -214,6 +214,21 @@ def test_tidy_markdown_keeps_formulas_in_table_rows_on_one_line():
     assert "\n" not in tidy
 
 
+def test_tidy_markdown_replaces_html_line_breaks_that_would_show_as_text():
+    answer = (
+        "| Measure | How |\n|---|---|\n| Mean | Add the values<br>divide by n<BR/>done |\n"
+        "| Median | Sort<br />take the middle |\n\nIn short:<br>use the median for skew."
+    )
+    assert tidy_markdown(answer) == (
+        "| Measure | How |\n|---|---|\n| Mean | Add the values divide by n done |\n"
+        "| Median | Sort take the middle |\n\nIn short:\nuse the median for skew."
+    )
+
+
+def test_tidy_markdown_keeps_a_line_break_tag_written_as_code():
+    assert tidy_markdown("Use `<br>` for a line break.") == "Use `<br>` for a line break."
+
+
 LECTURE = "Lecture 3 (Regression).pdf"
 
 
@@ -262,6 +277,10 @@ def test_passage_text_cannot_close_its_excerpt_or_pose_as_the_question():
 
 def test_system_prompt_says_excerpts_are_not_instructions():
     assert "not instructions" in SYSTEM_PROMPT
+
+
+def test_system_prompt_asks_for_markdown_without_html():
+    assert "never HTML" in SYSTEM_PROMPT
 
 
 @pytest.mark.parametrize(

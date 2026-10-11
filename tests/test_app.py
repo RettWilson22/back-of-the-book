@@ -160,6 +160,15 @@ def test_images_in_answers_are_not_rendered(app):
     assert any("!\\[x](https://evil.example" in m.value for m in at.markdown)
 
 
+def test_html_line_breaks_in_answer_tables_are_not_shown_as_text(app):
+    table = "| Tree | Splits |\n|---|---|\n| Decision | yes<br>or no [S1] |"
+    at = ask(app(FakeLLM(table)), "how does a decision tree split data with questions")
+
+    assert not at.exception
+    assert any("| Decision | yes or no [S1] |" in m.value for m in at.markdown)
+    assert not any("<br" in m.value for m in at.markdown if not m.proto.allow_html)
+
+
 def test_source_passages_are_shown_as_plain_text(app):
     at = app(FakeLLM("From your notes [S1]."))
     at.session_state["docs"] = {

