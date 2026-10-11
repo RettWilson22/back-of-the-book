@@ -1,0 +1,5 @@
+# The source of requirements.txt, which Streamlit Community Cloud installs (Linux, Python 3.12).
+# To update it, rerun the command at the top of requirements.txt. Version floors live in
+# pyproject.toml. CPU-only PyTorch keeps the install small, since there's no GPU there.
+--find-links https://download.pytorch.org/whl/cpu/torch/
+-e .[groq,claude,app]
