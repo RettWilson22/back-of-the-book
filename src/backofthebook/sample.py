@@ -8,6 +8,7 @@ evaluation's page labels were written for.
 from __future__ import annotations
 
 import hashlib
+import shutil
 import urllib.request
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from backofthebook.index import CorpusIndex, Embedder
 URL = "https://assets.openstax.org/oscms-prodcms/media/documents/Principles-of-Data-Science-WEB.pdf"
 SHA256 = "6b47205459a2f4e25a2b2a86369e674a26a5ae566a4cc428dd31047670692398"
 FILENAME = "principles-of-data-science.pdf"
+DOWNLOAD_TIMEOUT = 60  # seconds to wait for the server to respond or send more data
 
 
 class ChecksumError(RuntimeError):
@@ -39,15 +41,21 @@ def download_sample(directory: Path) -> Path:
         return dest
     directory.mkdir(parents=True, exist_ok=True)
     partial = dest.with_suffix(".part")
-    urllib.request.urlretrieve(URL, partial)
-    actual = sha256(partial)
-    if actual != SHA256:
-        partial.unlink()
-        raise ChecksumError(
-            f"downloaded file has checksum {actual}, not the edition the evaluation uses; "
-            "OpenStax may have published an update"
-        )
-    partial.replace(dest)  # only a verified file ever appears under the final name
+    try:
+        with (
+            urllib.request.urlopen(URL, timeout=DOWNLOAD_TIMEOUT) as response,
+            partial.open("wb") as file,
+        ):
+            shutil.copyfileobj(response, file)
+        actual = sha256(partial)
+        if actual != SHA256:
+            raise ChecksumError(
+                f"downloaded file has checksum {actual}, not the edition the evaluation uses; "
+                "OpenStax may have published an update"
+            )
+        partial.replace(dest)  # only a verified file ever appears under the final name
+    finally:
+        partial.unlink(missing_ok=True)  # a failed or interrupted download
     return dest
 
 
