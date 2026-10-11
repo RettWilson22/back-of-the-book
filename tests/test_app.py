@@ -594,15 +594,16 @@ def test_overlong_question_gets_a_hint_and_is_not_sent(app):
     assert llm.prompts == [] and at.session_state["turns"] == []
 
 
-def visit_from(monkeypatch: pytest.MonkeyPatch, forwarded_for: str) -> None:
-    """Make every session look like it comes through a proxy from this address."""
-    headers = {"X-Forwarded-For": forwarded_for}
+def visit_from(monkeypatch: pytest.MonkeyPatch, forwarded_for: str, peer: str = "10.0.0.1") -> None:
+    """Make every session look like it comes through a proxy at `peer`."""
+    headers = {"X-Forwarded-For": forwarded_for} if forwarded_for else {}
     monkeypatch.setattr(ContextProxy, "headers", property(lambda self: headers))
+    monkeypatch.setattr(ContextProxy, "ip_address", property(lambda self: peer))
 
 
 def test_a_visitor_keeps_their_ai_request_limit_after_reloading(app, monkeypatch):
     monkeypatch.setenv("BACKOFTHEBOOK_LLM_CALLS_PER_VISITOR", "1")
-    visit_from(monkeypatch, "203.0.113.7, 10.0.0.1")
+    visit_from(monkeypatch, "81.2.69.160, 10.0.0.1")
     llm = FakeLLM("Splits on questions [S1].")
     ask(app(llm), "how does a decision tree split data with questions")
 
@@ -621,11 +622,25 @@ def test_a_visitor_keeps_their_ai_request_limit_after_reloading(app, monkeypatch
 
 def test_visitors_from_different_addresses_have_separate_limits(app, monkeypatch):
     monkeypatch.setenv("BACKOFTHEBOOK_LLM_CALLS_PER_VISITOR", "1")
-    visit_from(monkeypatch, "203.0.113.7")
+    visit_from(monkeypatch, "81.2.69.160")
     llm = FakeLLM("Splits on questions [S1].")
     ask(app(llm), "how does a decision tree split data with questions")
 
-    visit_from(monkeypatch, "198.51.100.2")
+    visit_from(monkeypatch, "", peer="81.2.69.192")
+    other_visitor = AppTest.from_file(APP, default_timeout=30)
+    other_visitor.run()
+    ask(other_visitor, "what is k-means clustering")
+
+    assert not other_visitor.info
+    assert len(llm.prompts) == 2
+
+
+def test_visitors_behind_a_proxy_with_no_public_address_have_separate_limits(app, monkeypatch):
+    monkeypatch.setenv("BACKOFTHEBOOK_LLM_CALLS_PER_VISITOR", "1")
+    visit_from(monkeypatch, "", peer="10.0.0.1")
+    llm = FakeLLM("Splits on questions [S1].")
+    ask(app(llm), "how does a decision tree split data with questions")
+
     other_visitor = AppTest.from_file(APP, default_timeout=30)
     other_visitor.run()
     ask(other_visitor, "what is k-means clustering")

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import functools
 import html
+import ipaddress
 import logging
 import os
 import sys
@@ -303,18 +304,22 @@ def visitor_call_limiter(per_hour: int) -> CallLimiter:
 
 
 def visitor_id() -> str:
-    """Who a model request is counted against: the visitor's IP address, so reloading the page
-    doesn't reset their limit.
+    """Who a model request is counted against: the visitor's public IP address, so reloading
+    the page doesn't reset their limit.
 
-    Behind a proxy, such as Streamlit Community Cloud's, every connection comes from the proxy,
-    so the first X-Forwarded-For address is used. A script can fake that header, so this limit
-    is about fairness; the per-minute limit for everyone is what caps the bill. Run locally,
-    there is no address and each session gets its own budget.
+    Behind a proxy, such as Streamlit Community Cloud's, the connection comes from the proxy,
+    so the first public address in X-Forwarded-For is used. A private address belongs to a proxy
+    or a local network rather than to one visitor, so without a public one each session gets its
+    own budget, as it does when run locally. A script can fake the header, so this limit is
+    about fairness; the per-minute limit for everyone is what caps the bill.
     """
-    forwarded = st.context.headers.get("X-Forwarded-For") or ""
-    address = forwarded.split(",")[0].strip() or st.context.ip_address
-    if address:
-        return address
+    forwarded = (st.context.headers.get("X-Forwarded-For") or "").split(",")
+    for candidate in [*forwarded, st.context.ip_address or ""]:
+        try:
+            if ipaddress.ip_address(candidate.strip()).is_global:
+                return candidate.strip()
+        except ValueError:
+            continue
     session: str = st.session_state.setdefault("visitor_id", f"session-{uuid.uuid4()}")
     return session
 
