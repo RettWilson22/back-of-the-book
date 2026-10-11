@@ -91,6 +91,27 @@ def test_remove_boilerplate_drops_repeated_lines_and_running_heads():
     assert all("Access for free" not in page for page in cleaned)
 
 
+def test_remove_boilerplate_keeps_lines_repeated_in_the_body():
+    formula = "s = sqrt(sum((x - mean)^2) / (n - 1))"
+    raw = [
+        f"Statistics notes\nWeek {n}: spread\nWe use\n{formula}\nagain today.\nPage footer\n{n}"
+        for n in range(1, 16)
+    ]
+
+    cleaned = remove_boilerplate(raw)
+
+    assert all(formula in page for page in cleaned)
+    assert all("Statistics notes" not in page and "Page footer" not in page for page in cleaned)
+
+
+def test_remove_boilerplate_needs_more_repeats_in_a_short_document():
+    raw = [f"Unit {n}\nBody text {n}" for n in range(12)]
+    for n in range(5):
+        raw[n] = "Key idea: variance\n" + raw[n]
+
+    assert all("Key idea" in page for page in remove_boilerplate(raw)[:5])
+
+
 def test_pptx_reads_slides_tables_and_notes(tmp_path: Path):
     deck = make_pptx(
         tmp_path / "lecture.pptx",

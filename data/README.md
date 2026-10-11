@@ -11,4 +11,6 @@ python scripts/download_corpus.py
 backofthebook --index data/index ingest data/corpus
 ```
 
+The committed index was built before repeated-line removal was limited to the top and bottom of each page. A rebuild now keeps the "Problem" and "Solution" labels inside the book's worked examples, so it has 1,481 passages instead of 1,479 and its scores can differ slightly from the ones in the main README.
+
 `corpus/` holds the downloaded PDF and isn't committed.

@@ -95,20 +95,33 @@ def detect_page_offset(raw_pages: list[str], min_share: float = 0.3) -> int | No
     return offset if count >= max(3, min_share * len(raw_pages)) else None
 
 
+def _edge_lines(lines: list[str]) -> set[int]:
+    """Where a header or footer can be: the first and last two lines that have text."""
+    filled = [i for i, line in enumerate(lines) if line.strip()]
+    return set(filled[:2] + filled[-2:])
+
+
 def remove_boilerplate(raw_pages: list[str], min_share: float = 0.2) -> list[str]:
-    """Drop running heads and lines repeated on many pages (e.g. "Access for free at ...")."""
+    """Drop running heads, and headers or footers repeated on many pages (e.g. "Access for
+    free at ..."). Only the lines at the top and bottom of a page are candidates, so a formula
+    or definition that the body repeats on every page stays."""
+    pages = [text.splitlines() for text in raw_pages]
+    edges = [_edge_lines(lines) for lines in pages]
     counts = Counter(
-        line.strip() for text in raw_pages for line in set(text.splitlines()) if line.strip()
+        line
+        for lines, edge in zip(pages, edges, strict=True)
+        for line in {lines[i].strip() for i in edge}
     )
-    threshold = max(3, min_share * len(raw_pages))
+    # At least 10 pages, so a short document needs a larger share of its pages to agree.
+    threshold = max(10, min_share * len(raw_pages))
     repeated = {line for line, n in counts.items() if n >= threshold}
     return [
         "\n".join(
             line
-            for line in text.splitlines()
-            if line.strip() not in repeated and not _running_head(line)
+            for i, line in enumerate(lines)
+            if not (i in edge and line.strip() in repeated) and not _running_head(line)
         )
-        for text in raw_pages
+        for lines, edge in zip(pages, edges, strict=True)
     ]
 
 
