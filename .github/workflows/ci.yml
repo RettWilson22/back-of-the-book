@@ -9,23 +9,45 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same branch or pull request makes an older run pointless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   checks:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: "3.12"
-          cache: pip
+          persist-credentials: false
 
-      # CPU-only torch keeps the install small; runners have no GPU.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            requirements.txt
+
+      # 3.12 gets the exact versions Streamlit Community Cloud installs, from requirements.txt.
+      # 3.11 gets the newest versions pyproject.toml allows. Both use CPU-only torch, since
+      # runners have no GPU.
       - name: Install
+        env:
+          PYTHON_VERSION: ${{ matrix.python-version }}
         run: |
           python -m pip install --upgrade pip
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          if [ "$PYTHON_VERSION" = "3.12" ]; then
+            pip install -r requirements.txt
+          else
+            pip install torch --index-url https://download.pytorch.org/whl/cpu
+          fi
           pip install -e ".[claude,groq,app,dev]"
 
       - name: Lint
