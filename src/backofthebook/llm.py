@@ -39,6 +39,12 @@ CLAUDE_CHAT_MAX_TOKENS = 4096
 CLAUDE_QUIZ_MAX_TOKENS = 8192
 GROQ_CHAT_MAX_TOKENS = 2048
 GROQ_QUIZ_MAX_TOKENS = 4096
+# Seconds to wait for a response, or for a stream's next piece. A quiz from Claude arrives in
+# one piece once all of it is written, so it gets longer. The SDKs' own retries are turned off,
+# so each request a provider makes is one the app's call budget has counted.
+CLAUDE_TIMEOUT = 60
+CLAUDE_QUIZ_TIMEOUT = 180
+GROQ_TIMEOUT = 30
 
 
 class LLMError(BackOfTheBookError):
@@ -150,7 +156,7 @@ class ClaudeProvider:
         if client is None:
             import anthropic
 
-            client = anthropic.Anthropic()
+            client = anthropic.Anthropic(timeout=CLAUDE_TIMEOUT, max_retries=0)
         self.client = client
         self.model = model
         self.effort = effort
@@ -200,6 +206,7 @@ class ClaudeProvider:
                 output_format=schema,
                 betas=[FALLBACK_BETA],
                 fallbacks="default",
+                timeout=CLAUDE_QUIZ_TIMEOUT,
             )
         except anthropic.APIError as e:
             raise _claude_error(e) from e
@@ -228,7 +235,7 @@ class GroqProvider:
         if client is None:
             import groq
 
-            client = groq.Groq()
+            client = groq.Groq(timeout=GROQ_TIMEOUT, max_retries=0)
         self.client = client
         self.model = model
 

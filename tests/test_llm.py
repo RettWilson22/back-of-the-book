@@ -129,6 +129,7 @@ def test_claude_generate_uses_structured_output_schema():
     assert client.calls[0]["output_format"] is Answer
     assert client.calls[0]["max_tokens"] == 8192
     assert client.calls[0]["fallbacks"] == "default"
+    assert client.calls[0]["timeout"] == 180
 
 
 @pytest.mark.parametrize(
@@ -315,6 +316,16 @@ def test_make_provider_never_uses_claude_unless_allowed(
     for key, value in env.items():
         monkeypatch.setenv(key, value)
     assert make_provider(name, allow_claude=False).name == expected
+
+
+def test_provider_clients_time_out_and_never_retry_on_their_own(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("GROQ_API_KEY", "g")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "a")
+    groq_client = make_provider("groq").client
+    claude_client = make_provider("claude").client
+
+    assert (groq_client.timeout, groq_client.max_retries) == (30, 0)
+    assert (claude_client.timeout, claude_client.max_retries) == (60, 0)
 
 
 def test_make_provider_rejects_unknown_names():
