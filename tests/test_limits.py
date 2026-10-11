@@ -1,6 +1,6 @@
 import threading
 
-from backofthebook.limits import CallLimiter
+from backofthebook.limits import CallLimiter, Quota
 
 
 def test_call_limiter_allows_a_number_of_calls_per_window():
@@ -48,3 +48,31 @@ def test_call_limiter_never_lets_concurrent_callers_past_the_limit():
     for t in threads:
         t.join()
     assert granted.count(True) == 50
+
+
+def test_quota_refuses_what_would_go_over_the_total_until_it_is_given_back():
+    quota = Quota(100)
+
+    assert quota.try_take(60)
+    assert not quota.try_take(41)
+    assert quota.try_take(40)
+    quota.give_back(60)
+    assert quota.try_take(60)
+    assert quota.used == 100
+
+
+def test_quota_never_lets_concurrent_callers_take_more_than_the_total():
+    quota = Quota(500)
+    taken: list[bool] = []
+
+    def worker() -> None:
+        for _ in range(100):
+            taken.append(quota.try_take(3))
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert taken.count(True) == 500 // 3
+    assert quota.used == 3 * (500 // 3)

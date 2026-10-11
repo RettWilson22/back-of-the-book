@@ -40,3 +40,24 @@ class CallLimiter:
                 return False
             calls.append(now)
             return True
+
+
+class Quota:
+    """A fixed amount, such as passages held in memory, that callers take from and give back."""
+
+    def __init__(self, total: int) -> None:
+        self.total = total
+        self.used = 0
+        self._lock = threading.Lock()
+
+    def try_take(self, amount: int) -> bool:
+        """Take `amount` and return True, or return False if that would go over the total."""
+        with self._lock:
+            if self.used + amount > self.total:
+                return False
+            self.used += amount
+            return True
+
+    def give_back(self, amount: int) -> None:
+        with self._lock:
+            self.used -= amount

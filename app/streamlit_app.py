@@ -11,9 +11,11 @@ import logging
 import os
 import sys
 import tempfile
+import threading
 import time
 import urllib.parse
 import uuid
+import weakref
 from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from pathlib import Path
@@ -72,7 +74,7 @@ from backofthebook.index import (
     SentenceTransformerEmbedder,
     default_index_dir,
 )
-from backofthebook.limits import CallLimiter
+from backofthebook.limits import CallLimiter, Quota
 from backofthebook.llm import BudgetedProvider, LLMError, LLMProvider, make_provider
 from backofthebook.quiz import (
     MAX_QUESTIONS,
@@ -107,6 +109,11 @@ MAX_DOCUMENTS = 5
 MAX_PDF_PAGES = 300
 MAX_CHARS_PER_FILE = 2_000_000
 MAX_SESSION_CHUNKS = 3_000
+# Limits for all visitors together: files read and indexed at the same time (a CPU-heavy job),
+# and passages from uploads held in memory (about 5 KB each with their embeddings).
+MAX_UPLOADS_AT_ONCE = 2
+UPLOAD_WAIT_SECONDS = 10
+MAX_SERVER_CHUNKS = 15_000
 
 st.set_page_config(
     page_title="Back of the Book",
@@ -328,6 +335,18 @@ def spend_llm_call() -> None:
         )
 
 
+@st.cache_resource(show_spinner=False)
+def upload_slots() -> threading.BoundedSemaphore:
+    return threading.BoundedSemaphore(MAX_UPLOADS_AT_ONCE)
+
+
+@st.cache_resource(show_spinner=False)
+def upload_passages() -> Quota:
+    """Passages from every session's uploads. A document gives its share back when it's
+    removed or its session ends."""
+    return Quota(MAX_SERVER_CHUNKS)
+
+
 @st.cache_resource(show_spinner="Loading course index...")
 def load_base_index() -> CorpusIndex | None:
     try:
@@ -375,6 +394,10 @@ def process_upload(upload: UploadedFile, embedder: Embedder, room: int) -> Docum
     name = upload_name(upload.name)
     if upload.size > MAX_UPLOAD_MB * 1024 * 1024:
         return f"{name} is larger than {MAX_UPLOAD_MB} MB, so it can't be added."
+    busy = f"Back of the Book is busy with other people's files, so {name} wasn't added. "
+    slots, passages = upload_slots(), upload_passages()
+    if not slots.acquire(timeout=UPLOAD_WAIT_SECONDS):
+        return busy + "Please try again shortly."
     try:  # a bad upload shouldn't take down the app
         with tempfile.TemporaryDirectory() as tmp:  # deleted as soon as the file has been read
             path = Path(tmp) / name
@@ -388,17 +411,27 @@ def process_upload(upload: UploadedFile, embedder: Embedder, room: int) -> Docum
                 f"{name} is too long to add alongside your other documents. Remove one, or "
                 "upload a shorter file."
             )
-        index = CorpusIndex.build(chunks, embedder)
+        if not passages.try_take(len(chunks)):
+            return busy + "Please try again in a few minutes."
+        try:
+            index = CorpusIndex.build(chunks, embedder)
+        except BaseException:
+            passages.give_back(len(chunks))
+            raise
     except UnsupportedFileError as e:
         return str(e)
     except Exception:
         logger.exception("couldn't read upload %s", name)
         return f"Couldn't read {name}. The file may be damaged or password-protected."
+    finally:
+        slots.release()
     notes = []
     if text.unreadable:
         listed = ", ".join(str(n) for n in text.unreadable[:10])
         notes.append(f"Page(s) {listed} have no readable text (probably scanned images).")
-    return Document(name, index, len(text.pages), notes)
+    document = Document(name, index, len(text.pages), notes)
+    weakref.finalize(document, passages.give_back, len(chunks))
+    return document
 
 
 def add_uploads(uploads: list[UploadedFile], docs: dict[str, Document]) -> list[str]:
@@ -441,6 +474,21 @@ def document_row(
         name_col.markdown(f"**{title}**")
         name_col.caption(detail)
         button_col.button(button, key=key, help=help, on_click=action)
+
+
+def list_uploads(docs: dict[str, Document]) -> None:
+    """Each uploaded document with its Remove button. This is a function so that no script-level
+    name keeps a removed document, and its share of the server's passages, in memory."""
+    for doc in docs.values():
+        detail = f"{doc.pages} page{'s' if doc.pages != 1 else ''} · only visible to you"
+        document_row(
+            f"remove_{doc.name}",
+            doc.name,
+            " · ".join([detail, *doc.notes]),
+            "Remove",
+            functools.partial(remove_document, doc.name),
+            f"Remove {doc.name}",
+        )
 
 
 def remove_document(name: str) -> None:
@@ -544,16 +592,7 @@ with ask_tab:
     if docs or show_sample:
         st.markdown("**Documents**")
         with st.container(key="doc_list"):
-            for doc in docs.values():
-                detail = f"{doc.pages} page{'s' if doc.pages != 1 else ''} · only visible to you"
-                document_row(
-                    f"remove_{doc.name}",
-                    doc.name,
-                    " · ".join([detail, *doc.notes]),
-                    "Remove",
-                    functools.partial(remove_document, doc.name),
-                    f"Remove {doc.name}",
-                )
+            list_uploads(docs)
             if show_sample and base_index is not None:
                 built_in = base_index.sources
                 title = (

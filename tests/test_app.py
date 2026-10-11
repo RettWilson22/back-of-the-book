@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import gc
 import os
 import re
+import threading
 import urllib.parse
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,6 +20,7 @@ from streamlit.testing.v1 import AppTest
 from backofthebook.chunking import chunk_pages
 from backofthebook.documents import Page
 from backofthebook.index import CorpusIndex
+from backofthebook.limits import Quota
 from backofthebook.llm import StreamEvent
 from backofthebook.quiz import AnswerSheet, QuizDraft, QuizQuestion
 from backofthebook.retrieval import BM25Okapi
@@ -466,6 +469,52 @@ def test_upload_that_would_exceed_the_session_passage_limit_is_refused(app):
     assert not at.exception
     assert at.session_state["docs"] == {}
     assert any("too long" in e.value for e in at.error)
+
+
+def test_removed_uploads_give_their_passages_back_to_the_server(app, monkeypatch):
+    made: list[Quota] = []
+
+    class Recorded(Quota):
+        def __init__(self, total: int) -> None:
+            super().__init__(total)
+            made.append(self)
+
+    monkeypatch.setattr("backofthebook.limits.Quota", Recorded)
+    at = upload(app(FakeLLM()), notes(1), notes(2))
+    [passages] = made
+    assert passages.used == sum(len(d.index.chunks) for d in at.session_state["docs"].values())
+    assert passages.used > 0
+
+    next(b for b in at.button if b.key == "remove_notes1.md").click().run()
+    next(b for b in at.button if b.key == "remove_notes2.md").click().run()
+    gc.collect()
+    assert passages.used == 0
+
+
+def test_uploads_wait_their_turn_and_are_refused_when_the_server_is_busy(app, monkeypatch):
+    class Busy(threading.BoundedSemaphore):
+        def acquire(self, blocking: bool = True, timeout: float | None = None) -> bool:
+            return False
+
+    monkeypatch.setattr(threading, "BoundedSemaphore", Busy)
+    at = upload(app(FakeLLM()), notes(1))
+
+    assert not at.exception
+    assert at.session_state["docs"] == {}
+    assert any("busy with other people's files" in e.value for e in at.error)
+
+
+def test_uploads_are_refused_when_the_server_holds_too_many_passages(app, monkeypatch):
+    class Full(Quota):
+        def __init__(self, total: int) -> None:
+            super().__init__(0)
+
+    monkeypatch.setattr("backofthebook.limits.Quota", Full)
+    at = upload(app(FakeLLM()), notes(1))
+
+    assert not at.exception
+    assert at.session_state["docs"] == {}
+    assert any("try again in a few minutes" in e.value for e in at.error)
 
 
 def test_uploaded_file_name_cannot_form_an_image(app):
