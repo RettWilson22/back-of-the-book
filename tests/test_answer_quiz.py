@@ -53,6 +53,27 @@ def test_extract_citations_accepts_common_formats(text: str, expected: list[int]
     assert extract_citations(text, num_sources=5)[0] == expected
 
 
+@pytest.mark.parametrize(
+    ("text", "valid", "invalid"),
+    [
+        ("Spread [S1-S3].", [1, 2, 3], []),
+        ("Spread [S2\u2013S4] and (S5 \u2014 S5).", [2, 3, 4, 5], []),
+        ("Spread [S1-3; S5].", [1, 2, 3, 5], []),
+        ("Spread [S4-S7].", [4, 5], [7]),
+        ("Spread [S3-S1].", [1, 2, 3], []),
+    ],
+)
+def test_extract_citations_expands_ranges(text: str, valid: list[int], invalid: list[int]):
+    assert extract_citations(text, num_sources=5) == (valid, invalid)
+
+
+def test_extract_citations_does_not_expand_a_huge_range():
+    start = time.perf_counter()
+    valid, invalid = extract_citations("[S1-S999999999]", num_sources=3)
+    assert time.perf_counter() - start < 0.1
+    assert (valid, invalid) == ([1, 2, 3], [999999999])
+
+
 def test_prompt_labels_sources_with_citations(retriever: Retriever):
     hits = retriever.search("median", k=2, mode=Mode.HYBRID)
     prompt = build_prompt("What is the median?", hits)

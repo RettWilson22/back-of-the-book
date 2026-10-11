@@ -65,8 +65,10 @@ QUOTED_PASSAGES = 3
 QUOTE_INTRO = "No AI is set up, so here are the most relevant passages:"
 
 # Models don't always follow the requested format, so accept [S1], (S1), [S1][S2],
-# (S1, S2), and [S1; S3]. Each bracketed group may list several labels.
-_CITATION_GROUP = re.compile(r"[\[(]\s*S\d+(?:\s*[,;]\s*S?\d+)*\s*[\])]")
+# (S1, S2), [S1; S3], and ranges such as [S1-S3] or [S2-4], also written with an en or em
+# dash. Each bracketed group may list several labels.
+_CITATION_GROUP = re.compile(r"[\[(]\s*S\d+(?:\s*[,;\-\u2013\u2014]\s*S?\d+)*\s*[\])]")
+_CITATION_ITEM = re.compile(r"(\d+)(?:\s*[-\u2013\u2014]\s*S?(\d+))?")
 
 
 _FULLWIDTH_CITATION = re.compile(r"【\s*(S\d+)[^】]*】")  # gpt-oss style: 【S2】 or 【S2†L1-L4】
@@ -139,15 +141,21 @@ def build_prompt(question: str, hits: list[Hit]) -> str:
 
 
 def extract_citations(text: str, num_sources: int) -> tuple[list[int], list[int]]:
-    """Return (valid, invalid) source numbers cited in `text`, each in first-seen order."""
+    """Return (valid, invalid) source numbers cited in `text`, each in first-seen order.
+
+    A range counts as citing every source it covers. Its ends are reported as invalid when
+    they are out of range, but the numbers in between are not listed, so [S1-S999999] is cheap.
+    """
     valid: list[int] = []
     invalid: list[int] = []
     for group in _CITATION_GROUP.finditer(text):
-        for number in re.findall(r"\d+", group.group()):
-            n = int(number)
-            bucket = valid if 1 <= n <= num_sources else invalid
-            if n not in bucket:
-                bucket.append(n)
+        for first, last in _CITATION_ITEM.findall(group.group()):
+            low, high = sorted((int(first), int(last or first)))
+            numbers = [*range(max(low, 1), min(high, num_sources) + 1), low, high]
+            for n in numbers:
+                bucket = valid if 1 <= n <= num_sources else invalid
+                if n not in bucket:
+                    bucket.append(n)
     return valid, invalid
 
 
