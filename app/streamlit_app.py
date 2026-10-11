@@ -107,6 +107,7 @@ LLM_CALLS_PER_VISITOR = int(os.environ.get("BACKOFTHEBOOK_LLM_CALLS_PER_VISITOR"
 MAX_UPLOAD_MB = 10
 MAX_DOCUMENTS = 5
 MAX_PDF_PAGES = 300
+PDF_READ_SECONDS = 60  # a PDF that takes longer is refused; real ones take a few seconds
 MAX_CHARS_PER_FILE = 2_000_000
 MAX_SESSION_CHUNKS = 3_000
 # Limits for all visitors together: files read and indexed at the same time (a CPU-heavy job),
@@ -402,7 +403,12 @@ def process_upload(upload: UploadedFile, embedder: Embedder, room: int) -> Docum
         with tempfile.TemporaryDirectory() as tmp:  # deleted as soon as the file has been read
             path = Path(tmp) / name
             path.write_bytes(upload.getvalue())
-            text = read_document(path, max_pages=MAX_PDF_PAGES, max_chars=MAX_CHARS_PER_FILE)
+            text = read_document(
+                path,
+                max_pages=MAX_PDF_PAGES,
+                max_chars=MAX_CHARS_PER_FILE,
+                timeout=PDF_READ_SECONDS,
+            )
         chunks = chunk_pages(text.pages)
         if not chunks:
             return f"Couldn't find any text in {name}. If it's a scan, it can't be read yet."

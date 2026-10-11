@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 import streamlit as st
-from conftest import TOY_PAGES, FakeEmbedder, FakeLLM, FakeReranker, FakeWikipedia
+from conftest import TOY_PAGES, FakeEmbedder, FakeLLM, FakeReranker, FakeWikipedia, make_pdf
 from streamlit.runtime.context import ContextProxy
 from streamlit.testing.v1 import AppTest
 
@@ -444,6 +444,18 @@ def test_uploaded_file_is_read_and_listed(app):
     assert not at.exception
     assert list(at.session_state["docs"]) == ["notes1.md"]
     assert not at.error
+
+
+def test_uploaded_pdf_is_read_with_its_page_numbers(app, tmp_path):
+    pages = ["Gradient descent takes steps downhill.", "", "Momentum keeps all of them going."]
+    pdf = make_pdf(tmp_path / "slides.pdf", pages)
+    at = app(FakeLLM())
+    at.file_uploader[0].set_value([("slides.pdf", pdf.read_bytes(), "application/pdf")]).run()
+
+    assert not at.exception and not at.error
+    doc = at.session_state["docs"]["slides.pdf"]
+    assert [c.page for c in doc.index.chunks] == [1, 3]
+    assert doc.notes == ["Page(s) 2 have no readable text (probably scanned images)."]
 
 
 def test_upload_larger_than_the_size_limit_is_refused(app):

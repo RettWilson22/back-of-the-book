@@ -6,7 +6,10 @@ Citations are only as good as the location data behind them, so every loader ret
 
 from __future__ import annotations
 
+import json
 import re
+import subprocess
+import sys
 import zipfile
 from collections import Counter
 from dataclasses import dataclass, field
@@ -217,14 +220,66 @@ def load_text(path: Path) -> list[Page]:
     return pages
 
 
+def read_pdf_in_child(
+    path: Path, max_pages: int | None, max_chars: int | None, timeout: float
+) -> DocumentText:
+    """`read_pdf` in a separate Python process, stopped after `timeout` seconds. A crafted PDF
+    can keep pypdf busy far longer than any real one, and a process can be stopped where a
+    thread can't. The child gets the same source files and none of this process's environment,
+    so it never sees API keys."""
+    package_root = str(Path(__file__).resolve().parents[1])
+    command = [
+        sys.executable,
+        "-m",
+        "backofthebook.documents",
+        json.dumps([str(path), max_pages, max_chars]),
+    ]
+    try:
+        done = subprocess.run(
+            command, capture_output=True, timeout=timeout, env={"PYTHONPATH": package_root}
+        )
+    except subprocess.TimeoutExpired:
+        raise UnsupportedFileError(
+            f"{path.name} took too long to read, so it may be damaged. Try saving it again as a "
+            "new PDF, or splitting it."
+        ) from None
+    if done.returncode != 0:
+        raise RuntimeError(
+            f"reading {path.name} failed: {done.stderr.decode(errors='replace')[-2000:]}"
+        )
+    result = json.loads(done.stdout)
+    if "error" in result:
+        raise UnsupportedFileError(result["error"])
+    pages = [Page(path.name, number, text, label) for number, text, label in result["pages"]]
+    return DocumentText(pages, result["unreadable"])
+
+
+def _read_pdf_for_parent() -> None:
+    path, max_pages, max_chars = json.loads(sys.argv[1])
+    try:
+        text = read_pdf(Path(path), max_pages, max_chars)
+    except UnsupportedFileError as e:
+        json.dump({"error": str(e)}, sys.stdout)
+        return
+    pages = [[p.page, p.text, p.label] for p in text.pages]
+    json.dump({"pages": pages, "unreadable": text.unreadable}, sys.stdout)
+
+
 def read_document(
-    path: Path, *, max_pages: int | None = None, max_chars: int | None = None
+    path: Path,
+    *,
+    max_pages: int | None = None,
+    max_chars: int | None = None,
+    timeout: float | None = None,
 ) -> DocumentText:
     """Read a document's pages. Pass limits when the file comes from someone else: a PDF with
     more than `max_pages` pages, or any file with more than `max_chars` characters of text,
-    raises UnsupportedFileError instead."""
+    raises UnsupportedFileError instead. With a `timeout`, a PDF is read in a separate process
+    and refused if that takes longer."""
     suffix = path.suffix.lower()
     if suffix == ".pdf":
+        if timeout is not None:
+            return read_pdf_in_child(path, max_pages, max_chars, timeout)
         return read_pdf(path, max_pages, max_chars)
     if suffix == ".pptx":
         pages = load_pptx(path)
@@ -253,3 +308,7 @@ def find_documents(paths: list[Path]) -> list[Path]:
         else:
             found.append(path)
     return found
+
+
+if __name__ == "__main__":
+    _read_pdf_for_parent()

@@ -241,3 +241,31 @@ def test_pptx_with_a_zip_bomb_member_is_refused(tmp_path: Path):
     bomb = zip_with(tmp_path / "bomb.pptx", {"ppt/slides/slide1.xml": b"\0" * (4 << 20)})
     with pytest.raises(UnsupportedFileError, match="bomb"):
         load_document(bomb)
+
+
+def test_pdf_read_in_a_separate_process_matches_reading_it_here(tmp_path: Path):
+    pdf = make_pdf(tmp_path / "notes.pdf", ["Page one about variance.", "", "Page three."])
+
+    assert read_document(pdf, timeout=30) == read_document(pdf)
+
+
+def test_pdf_that_takes_too_long_to_read_is_refused(tmp_path: Path):
+    pdf = make_pdf(tmp_path / "slow.pdf", ["Some text."])
+
+    with pytest.raises(UnsupportedFileError, match="took too long"):
+        read_document(pdf, timeout=0.001)
+
+
+def test_limits_apply_to_a_pdf_read_in_a_separate_process(tmp_path: Path):
+    pdf = make_pdf(tmp_path / "long.pdf", [f"Page {n} text." for n in range(1, 6)])
+
+    with pytest.raises(UnsupportedFileError, match="5 pages"):
+        read_document(pdf, max_pages=4, timeout=30)
+
+
+def test_damaged_pdf_read_in_a_separate_process_raises(tmp_path: Path):
+    pdf = tmp_path / "broken.pdf"
+    pdf.write_bytes(b"%PDF-1.7\nnot really a pdf")
+
+    with pytest.raises(RuntimeError, match=r"broken\.pdf"):
+        read_document(pdf, timeout=30)
