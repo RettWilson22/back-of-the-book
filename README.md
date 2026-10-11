@@ -147,7 +147,7 @@ source .venv/bin/activate
 pip install -e ".[groq,claude,app,dev]"
 ```
 
-The repo ships a prebuilt index of the sample textbook (`data/index`, 3.7 MB), so there's nothing to download or build before you start.
+The repo ships a prebuilt index of the sample textbook (`data/index`, 3.7 MB), so there's nothing to build. The first run downloads the two small models it uses from Hugging Face (about 180 MB together), which takes a minute or so; after that they load from the local cache.
 
 Pick an LLM (or skip this for offline, quote-only answers):
 
@@ -182,18 +182,18 @@ Use your own materials with `backofthebook ingest path/to/slides/`, or upload fi
 
 1. Fork this repo, then at [share.streamlit.io](https://share.streamlit.io) choose **Create app → Deploy a public app from GitHub**.
 2. Repository: your fork, branch `main`, main file `app/streamlit_app.py`. Under **Advanced settings**, pick Python 3.12 and add `GROQ_API_KEY = "..."` as a secret.
-3. Deploy. The bundled index loads at startup, so there's no setup step. Peak memory is about 0.6 GB.
+3. Deploy. Cloud installs the exact versions pinned in `requirements.txt`, which is compiled from `requirements.in` for Linux and Python 3.12 (the command to update it is at the top of the file). The first boot also downloads the two models, so it takes a few minutes. After that the bundled index loads at startup, so there's no setup step. Peak memory is about 0.6 GB.
 
 ## Testing
 
 ```bash
-pytest                 # 245 tests, about 20 s, no downloads or API keys needed (fake models and LLM)
+pytest                 # 275 tests, about 40 s, no downloads or API keys needed (fake models and LLM)
 pytest -m slow         # real embedding/reranking models; includes a guard that fails
                        # if textbook Recall@10 drops below 95% or MRR below 0.80
 ruff check . && mypy src app/streamlit_app.py
 ```
 
-The fast tests cover every module (97% line coverage of `src/`), every error code, the CLI end to end including exit codes, and the web app through Streamlit's `AppTest`: asking, follow-up questions, referencing a document, reasoning display, general-knowledge labeling, taking and grading both kinds of quiz, uploads and their limits, the limits on model requests, and how errors are shown. CI runs lint, strict type checking, and tests on every push.
+The fast tests cover every module (97% line coverage of `src/`), every error code, the CLI end to end including exit codes, and the web app through Streamlit's `AppTest`: asking, follow-up questions, referencing a document, reasoning display, general-knowledge labeling, taking and grading both kinds of quiz, uploads and their limits, the limits on model requests, and how errors are shown. CI runs lint, strict type checking, and tests on Python 3.11 and 3.12 on every push; the 3.12 run installs the pinned versions from `requirements.txt`.
 
 ## Limitations
 
