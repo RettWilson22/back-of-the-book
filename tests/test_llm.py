@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import threading
 from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any
@@ -21,7 +20,6 @@ from backofthebook.llm import (
     CLAUDE_DEFAULT_MODEL,
     FALLBACK_BETA,
     BudgetedProvider,
-    CallLimiter,
     ClaudeProvider,
     ExtractiveProvider,
     GroqProvider,
@@ -333,34 +331,6 @@ def test_make_provider_rejects_unknown_names():
         make_provider("gpt")
 
 
-def test_call_limiter_allows_a_number_of_calls_per_window():
-    now = [0.0]
-    limiter = CallLimiter(2, window=60, clock=lambda: now[0])
-
-    assert limiter.try_acquire() and limiter.try_acquire()
-    assert not limiter.try_acquire()
-    now[0] = 59.9
-    assert not limiter.try_acquire()
-    now[0] = 60.0
-    assert limiter.try_acquire()
-
-
-def test_call_limiter_never_lets_concurrent_callers_past_the_limit():
-    limiter = CallLimiter(50)
-    granted: list[bool] = []
-
-    def worker() -> None:
-        for _ in range(25):
-            granted.append(limiter.try_acquire())
-
-    threads = [threading.Thread(target=worker) for _ in range(8)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-    assert granted.count(True) == 50
-
-
 def test_budgeted_provider_spends_before_every_call():
     spent: list[str] = []
     inner = FakeLLM("Hi", structured=Answer(value=1))
@@ -385,6 +355,30 @@ def test_budgeted_provider_makes_no_request_once_the_budget_is_spent():
     with pytest.raises(LLMError):
         provider.generate("sys", "q", Answer)
     assert inner.prompts == []
+
+
+def test_budgeted_provider_spends_again_before_groq_retries_invalid_json():
+    spent: list[str] = []
+    client = FakeGroqClient(replies=['{"value": "three"}', '{"value": 3}'])
+    provider = BudgetedProvider(GroqProvider(client=client), lambda: spent.append("call"))
+
+    assert provider.generate("sys", "q", Answer) == Answer(value=3)
+    assert len(spent) == len(client.calls) == 2
+
+
+def test_groq_does_not_retry_once_the_budget_is_spent():
+    budget = [1]
+
+    def spend() -> None:
+        if not budget[0]:
+            raise LLMError(ErrorCode.USAGE_LIMIT, "Try again in a minute.")
+        budget[0] -= 1
+
+    client = FakeGroqClient(replies=['{"value": "three"}', '{"value": 3}'])
+    with pytest.raises(LLMError) as raised:
+        BudgetedProvider(GroqProvider(client=client), spend).generate("sys", "q", Answer)
+    assert raised.value.code is ErrorCode.USAGE_LIMIT
+    assert len(client.calls) == 1
 
 
 def test_provider_error_messages_shown_to_users_are_generic():

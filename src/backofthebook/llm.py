@@ -5,7 +5,7 @@
 - `ExtractiveProvider` stands for "no AI model": answers quote the retrieved passages
   themselves (see `AnswerEngine.quote_passages`), so the app and retrieval work offline.
 - `BudgetedProvider` wraps another provider and spends from a call budget before every
-  request; `CallLimiter` is a budget of calls per minute that threads can share.
+  request, including a provider's retries.
 """
 
 from __future__ import annotations
@@ -14,10 +14,8 @@ import json
 import logging
 import os
 import re
-import threading
-import time
-from collections import deque
 from collections.abc import Callable, Iterator
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, TypeVar
 
@@ -45,6 +43,11 @@ GROQ_QUIZ_MAX_TOKENS = 4096
 CLAUDE_TIMEOUT = 60
 CLAUDE_QUIZ_TIMEOUT = 180
 GROQ_TIMEOUT = 30
+
+
+# Set while BudgetedProvider.generate runs, so that a provider which sends a second request (Groq's
+# repair attempt) spends from the same budget before it.
+_spend_on_retry: ContextVar[Callable[[], None] | None] = ContextVar("spend_on_retry", default=None)
 
 
 class LLMError(BackOfTheBookError):
@@ -286,7 +289,9 @@ class GroqProvider:
             {"role": "user", "content": user},
         ]
         problem = ""
-        for _ in range(2):  # one repair attempt with the problem as feedback
+        for attempt in range(2):  # one repair attempt with the problem as feedback
+            if attempt and (spend := _spend_on_retry.get()):
+                spend()
             try:
                 response = self.client.chat.completions.create(
                     model=self.model,
@@ -359,33 +364,9 @@ class ExtractiveProvider:
         )
 
 
-class CallLimiter:
-    """Allows at most `limit` calls in any `window` seconds, counted across all threads."""
-
-    def __init__(
-        self, limit: int, window: float = 60.0, clock: Callable[[], float] = time.monotonic
-    ) -> None:
-        self.limit = limit
-        self.window = window
-        self._clock = clock
-        self._calls: deque[float] = deque()
-        self._lock = threading.Lock()
-
-    def try_acquire(self) -> bool:
-        """Count one call and return True, or return False if the limit is reached."""
-        with self._lock:
-            now = self._clock()
-            while self._calls and now - self._calls[0] >= self.window:
-                self._calls.popleft()
-            if len(self._calls) >= self.limit:
-                return False
-            self._calls.append(now)
-            return True
-
-
 class BudgetedProvider:
-    """A provider that calls `spend` before every request. `spend` raises (usually an
-    LLMError with code USAGE_LIMIT) to stop the request from being made."""
+    """A provider that calls `spend` before every request, retries included. `spend` raises
+    (usually an LLMError with code USAGE_LIMIT) to stop the request from being made."""
 
     def __init__(self, inner: LLMProvider, spend: Callable[[], None]) -> None:
         self.inner = inner
@@ -398,7 +379,11 @@ class BudgetedProvider:
 
     def generate(self, system: str, user: str, schema: type[T]) -> T:
         self._spend()
-        return self.inner.generate(system, user, schema)
+        token = _spend_on_retry.set(self._spend)
+        try:
+            return self.inner.generate(system, user, schema)
+        finally:
+            _spend_on_retry.reset(token)
 
 
 def make_provider(name: str | None = None, *, allow_claude: bool = True) -> LLMProvider:

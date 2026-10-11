@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 import streamlit as st
 from conftest import TOY_PAGES, FakeEmbedder, FakeLLM, FakeReranker, FakeWikipedia
+from streamlit.runtime.context import ContextProxy
 from streamlit.testing.v1 import AppTest
 
 from backofthebook.chunking import chunk_pages
@@ -532,19 +533,44 @@ def test_overlong_question_gets_a_hint_and_is_not_sent(app):
     assert llm.prompts == [] and at.session_state["turns"] == []
 
 
-def test_a_session_has_a_limited_number_of_ai_requests(app):
-    llm = quiz_llm([kmeans_question()])
-    at = app(llm)
-    at.session_state["llm_calls"] = 40
-    ask(at, "how does a decision tree split data with questions")
-    assert any("limit of 40 AI requests" in i.value for i in at.info)
+def visit_from(monkeypatch: pytest.MonkeyPatch, forwarded_for: str) -> None:
+    """Make every session look like it comes through a proxy from this address."""
+    headers = {"X-Forwarded-For": forwarded_for}
+    monkeypatch.setattr(ContextProxy, "headers", property(lambda self: headers))
 
-    at.text_input[0].set_value("k-means clustering")
-    quiz_buttons(at)[0].click().run()
-    assert any("limit of 40 AI requests" in i.value for i in at.info)
 
-    assert not at.exception and not at.error
-    assert llm.prompts == []
+def test_a_visitor_keeps_their_ai_request_limit_after_reloading(app, monkeypatch):
+    monkeypatch.setenv("BACKOFTHEBOOK_LLM_CALLS_PER_VISITOR", "1")
+    visit_from(monkeypatch, "203.0.113.7, 10.0.0.1")
+    llm = FakeLLM("Splits on questions [S1].")
+    ask(app(llm), "how does a decision tree split data with questions")
+
+    reloaded = AppTest.from_file(APP, default_timeout=30)
+    reloaded.run()
+    ask(reloaded, "what is k-means clustering")
+    assert any("limit of 1 AI requests an hour" in i.value for i in reloaded.info)
+
+    reloaded.text_input[0].set_value("k-means clustering")
+    quiz_buttons(reloaded)[0].click().run()
+    assert any("limit of 1 AI requests an hour" in i.value for i in reloaded.info)
+
+    assert not reloaded.exception and not reloaded.error
+    assert len(llm.prompts) == 1
+
+
+def test_visitors_from_different_addresses_have_separate_limits(app, monkeypatch):
+    monkeypatch.setenv("BACKOFTHEBOOK_LLM_CALLS_PER_VISITOR", "1")
+    visit_from(monkeypatch, "203.0.113.7")
+    llm = FakeLLM("Splits on questions [S1].")
+    ask(app(llm), "how does a decision tree split data with questions")
+
+    visit_from(monkeypatch, "198.51.100.2")
+    other_visitor = AppTest.from_file(APP, default_timeout=30)
+    other_visitor.run()
+    ask(other_visitor, "what is k-means clustering")
+
+    assert not other_visitor.info
+    assert len(llm.prompts) == 2
 
 
 def test_requests_per_minute_are_limited_across_all_visitors(app, monkeypatch):
@@ -558,7 +584,7 @@ def test_requests_per_minute_are_limited_across_all_visitors(app, monkeypatch):
     assert not other_visitor.exception
     assert len(llm.prompts) == 1
     assert any("in a minute" in i.value for i in other_visitor.info)
-    assert at.session_state["llm_calls"] == 1
+    assert at.session_state["turns"]
 
 
 class BrokenLLM(FakeLLM):

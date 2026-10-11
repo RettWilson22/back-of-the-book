@@ -13,6 +13,7 @@ import sys
 import tempfile
 import time
 import urllib.parse
+import uuid
 from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from pathlib import Path
@@ -71,7 +72,8 @@ from backofthebook.index import (
     SentenceTransformerEmbedder,
     default_index_dir,
 )
-from backofthebook.llm import BudgetedProvider, CallLimiter, LLMError, LLMProvider, make_provider
+from backofthebook.limits import CallLimiter
+from backofthebook.llm import BudgetedProvider, LLMError, LLMProvider, make_provider
 from backofthebook.quiz import (
     MAX_QUESTIONS,
     MAX_TOPIC_CHARS,
@@ -94,9 +96,10 @@ USE_SAMPLE = os.environ.get("BACKOFTHEBOOK_SAMPLE", "1") != "0"
 ALLOW_CLAUDE = os.environ.get("BACKOFTHEBOOK_ALLOW_CLAUDE") == "1"
 AI_PROVIDERS = "Groq or Claude" if ALLOW_CLAUDE else "Groq"
 # Model requests (each chat answer is one, each quiz two or more), per minute for the whole
-# server and per visitor session, so nobody can run up the API bill or use up the rate limit.
+# server and per hour for each visitor, so nobody can run up the API bill or use up the rate
+# limit.
 LLM_CALLS_PER_MINUTE = int(os.environ.get("BACKOFTHEBOOK_LLM_CALLS_PER_MINUTE", "30"))
-LLM_CALLS_PER_SESSION = int(os.environ.get("BACKOFTHEBOOK_LLM_CALLS_PER_SESSION", "40"))
+LLM_CALLS_PER_VISITOR = int(os.environ.get("BACKOFTHEBOOK_LLM_CALLS_PER_VISITOR", "40"))
 # Limits on what one visitor can upload. The server also refuses files over maxUploadSize
 # (.streamlit/config.toml); the size is checked again here.
 MAX_UPLOAD_MB = 10
@@ -285,14 +288,37 @@ def shared_call_limiter(per_minute: int) -> CallLimiter:
     return CallLimiter(per_minute)
 
 
+@st.cache_resource(show_spinner=False)
+def visitor_call_limiter(per_hour: int) -> CallLimiter:
+    """A budget of model requests per hour for each visitor, kept for the whole server."""
+    return CallLimiter(per_hour, window=3600)
+
+
+def visitor_id() -> str:
+    """Who a model request is counted against: the visitor's IP address, so reloading the page
+    doesn't reset their limit.
+
+    Behind a proxy, such as Streamlit Community Cloud's, every connection comes from the proxy,
+    so the first X-Forwarded-For address is used. A script can fake that header, so this limit
+    is about fairness; the per-minute limit for everyone is what caps the bill. Run locally,
+    there is no address and each session gets its own budget.
+    """
+    forwarded = st.context.headers.get("X-Forwarded-For") or ""
+    address = forwarded.split(",")[0].strip() or st.context.ip_address
+    if address:
+        return address
+    session: str = st.session_state.setdefault("visitor_id", f"session-{uuid.uuid4()}")
+    return session
+
+
 def spend_llm_call() -> None:
-    """Count one model request against this session's and the server's limits."""
-    used = st.session_state.get("llm_calls", 0)
-    if used >= LLM_CALLS_PER_SESSION:
+    """Count one model request against this visitor's and the server's limits."""
+    # The visitor's own budget comes first, so someone over it can't use up everyone else's.
+    if not visitor_call_limiter(LLM_CALLS_PER_VISITOR).try_acquire(visitor_id()):
         raise LLMError(
             ErrorCode.USAGE_LIMIT,
-            f"This visit has reached its limit of {LLM_CALLS_PER_SESSION} AI requests. "
-            "Switch to No AI in About > Settings to keep searching your documents.",
+            f"You've reached the limit of {LLM_CALLS_PER_VISITOR} AI requests an hour. Switch "
+            "to No AI in About > Settings to keep searching your documents, or come back later.",
         )
     if not shared_call_limiter(LLM_CALLS_PER_MINUTE).try_acquire():
         raise LLMError(
@@ -300,7 +326,6 @@ def spend_llm_call() -> None:
             "A lot of people are using Back of the Book right now, so it hit its limit on AI "
             "requests. Please try again in a minute.",
         )
-    st.session_state.llm_calls = used + 1
 
 
 @st.cache_resource(show_spinner="Loading course index...")
