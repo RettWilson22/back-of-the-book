@@ -109,7 +109,7 @@ def test_claude_streams_thinking_then_text_with_effort_and_fallback():
     assert call["output_config"] == {"effort": "high"}
     assert call["betas"] == [FALLBACK_BETA]
     assert call["fallbacks"] == "default"
-    assert call["max_tokens"] == 4096
+    assert call["max_tokens"] == 8192
 
 
 def test_claude_stream_refusal_raises():
@@ -227,6 +227,7 @@ def test_groq_streams_reasoning_and_text_and_skips_empty_deltas():
     call = client.calls[0]
     assert call["messages"] == [{"role": "system", "content": "sys"}, *CONVERSATION]
     assert call["include_reasoning"] is True
+    assert call["reasoning_effort"] == "low"
     assert call["max_completion_tokens"] == 2048
 
 

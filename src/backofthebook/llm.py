@@ -31,11 +31,15 @@ GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b"
 # Server-side fallback: if a request is declined by a safety classifier, the API re-runs it on
 # Anthropic's recommended model for that refusal category instead of returning the refusal.
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
-# Most tokens one request may write (reasoning included). Answers and quizzes need far less;
-# the caps bound what a single request can cost on a public deployment.
-CLAUDE_CHAT_MAX_TOKENS = 4096
+# Most tokens one request may write, reasoning included; they bound what a request can cost.
+# A cited answer with a table runs to about 1,000 tokens. Groq allows gpt-oss-120b 8,000 tokens
+# a minute on its base tiers, and a prompt with a short document in full is about 4,500, so
+# rather than raise Groq's chat cap, its reasoning is kept short to leave room for the answer.
+# Claude is only offered on private deployments and thinks at medium effort, so it gets room.
+CLAUDE_CHAT_MAX_TOKENS = 8192
 CLAUDE_QUIZ_MAX_TOKENS = 8192
 GROQ_CHAT_MAX_TOKENS = 2048
+GROQ_CHAT_REASONING = "low"
 GROQ_QUIZ_MAX_TOKENS = 4096
 # Seconds to wait for a response, or for a stream's next piece. A quiz from Claude arrives in
 # one piece once all of it is written, so it gets longer. The SDKs' own retries are turned off,
@@ -251,7 +255,9 @@ class GroqProvider:
         import groq
 
         extra: dict[str, Any] = (
-            {"include_reasoning": True, "reasoning_effort": "medium"} if self._reasons else {}
+            {"include_reasoning": True, "reasoning_effort": GROQ_CHAT_REASONING}
+            if self._reasons
+            else {}
         )
         try:
             stream = self.client.chat.completions.create(
